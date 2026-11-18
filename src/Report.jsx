@@ -1,4 +1,5 @@
 import Radar from './Radar'
+import logo from './assets/aha-logo.jpg'
 import { buildReport } from './lib/report'
 import { fmt, dfmt } from './lib/format'
 
@@ -11,7 +12,8 @@ export default function Report({ result, onRestart, compact = false }) {
   return (
     <article className={'report' + (compact ? ' compact' : '')}>
       <header className="report-head">
-        <p className="brand">AHA Leadership Centre · Laporan asesmen</p>
+        <img className="logo sm" src={logo} alt="AHA Leadership Centre" />
+        <p className="brand">Laporan asesmen</p>
         <h1>{result.participant_name}</h1>
         <p className="meta">
           Asesmen {dfmt(result.completed_at)} · Versi konfigurasi {result.version_number}

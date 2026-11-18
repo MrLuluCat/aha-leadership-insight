@@ -164,7 +164,6 @@ export default function Results() {
     <>
       <header className="ahead">
         <div>
-          <p className="brand">Data asesmen</p>
           <h1>Hasil peserta</h1>
         </div>
         <p className="meta">{total} hasil asesmen</p>
@@ -215,7 +214,7 @@ export default function Results() {
       {error && <p className="alert">{error}</p>}
 
       <div className="tablewrap card">
-        <table className="data">
+        <table className="data stack">
           <thead>
             <tr>
               <th>
@@ -256,16 +255,16 @@ export default function Results() {
             {!loading &&
               rows.map((row) => (
                 <tr key={row.result_id} className={row.result_id === selectedId ? 'on' : ''}>
-                  <td>
+                  <td data-label="Peserta">
                     <b>{row.participant_name}</b>
                     {row.participant_email && <small className="sub">{row.participant_email}</small>}
                   </td>
-                  <td>{dfmt(row.assessment_date)}</td>
-                  <td>
+                  <td data-label="Tanggal">{dfmt(row.assessment_date)}</td>
+                  <td data-label="Leadership Index">
                     <b>{fmt(row.overall_score)}</b>
                   </td>
-                  <td>{row.category}</td>
-                  <td>v{row.version_number}</td>
+                  <td data-label="Kategori">{row.category}</td>
+                  <td data-label="Versi">v{row.version_number}</td>
                   <td>
                     <button className="thb" onClick={() => openDetail(row)}>
                       Lihat
@@ -316,7 +315,7 @@ export default function Results() {
               <details className="answers">
                 <summary>Detail jawaban peserta ({detail.responses.length})</summary>
                 <div className="tablewrap">
-                  <table className="data">
+                  <table className="data stack">
                     <thead>
                       <tr>
                         <th>#</th>
@@ -333,18 +332,18 @@ export default function Results() {
                         )
                         return (
                           <tr key={response.question_id}>
-                            <td>{i + 1}</td>
-                            <td>
+                            <td data-label="No.">{i + 1}</td>
+                            <td data-label="Pertanyaan">
                               {response.question.text}
                               {response.question.reverse_scoring && (
                                 <small className="tag">reverse</small>
                               )}
                             </td>
-                            <td>{dim?.name ?? '—'}</td>
-                            <td>
+                            <td data-label="Dimensi">{dim?.name ?? '—'}</td>
+                            <td data-label="Jawaban">
                               {response.answer} · {SCALE[response.answer - 1]}
                             </td>
-                            <td>{fmt(((response.corrected_answer - 1) / 4) * 100)}</td>
+                            <td data-label="Skor butir">{fmt(((response.corrected_answer - 1) / 4) * 100)}</td>
                           </tr>
                         )
                       })}

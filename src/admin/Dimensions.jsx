@@ -156,7 +156,6 @@ export default function Dimensions() {
     <>
       <header className="ahead">
         <div>
-          <p className="brand">Pengaturan asesmen</p>
           <h1>Dimensi &amp; bobot</h1>
         </div>
         <div className="actions">
@@ -316,7 +315,7 @@ export default function Dimensions() {
           kontribusi lebih tinggi pada skor dimensi.
         </p>
         <div className="tablewrap">
-          <table className="data">
+          <table className="data stack">
             <thead>
               <tr>
                 <th>Urutan</th>
@@ -330,12 +329,12 @@ export default function Dimensions() {
             <tbody>
               {questions.map((question) => (
                 <tr key={question.id} className={question.is_active ? '' : 'muted'}>
-                  <td>{question.sort_order}</td>
-                  <td>{question.question_text}</td>
-                  <td>
+                  <td data-label="Urutan">{question.sort_order}</td>
+                  <td data-label="Pertanyaan">{question.question_text}</td>
+                  <td data-label="Dimensi">
                     {dimensions.find((dim) => dim.id === question.dimension_id)?.name ?? '—'}
                   </td>
-                  <td>
+                  <td data-label="Bobot">
                     <input
                       className="inline-input"
                       type="number"
@@ -348,7 +347,7 @@ export default function Dimensions() {
                       }
                     />
                   </td>
-                  <td>
+                  <td data-label="Reverse">
                     <input
                       type="checkbox"
                       checked={question.reverse_scoring}
@@ -358,7 +357,7 @@ export default function Dimensions() {
                       }
                     />
                   </td>
-                  <td>
+                  <td data-label="Aktif">
                     <input
                       type="checkbox"
                       checked={question.is_active}

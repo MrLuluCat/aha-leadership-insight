@@ -136,7 +136,6 @@ export default function Questions() {
     <>
       <header className="ahead">
         <div>
-          <p className="brand">Pengaturan asesmen</p>
           <h1>Pertanyaan</h1>
         </div>
         <button className="btn" onClick={startNew} disabled={!dimensions.length}>
@@ -243,7 +242,7 @@ export default function Questions() {
       </div>
 
       <div className="tablewrap card">
-        <table className="data">
+        <table className="data stack">
           <thead>
             <tr>
               <th>Urutan</th>
@@ -258,12 +257,12 @@ export default function Questions() {
           <tbody>
             {shown.map((question) => (
               <tr key={question.id} className={question.is_active ? '' : 'muted'}>
-                <td>{question.sort_order}</td>
-                <td>{question.question_text}</td>
-                <td>{dimName(question.dimension_id)}</td>
-                <td>{fmt(question.weight)}</td>
-                <td>{question.reverse_scoring ? 'Ya' : '—'}</td>
-                <td>
+                <td data-label="Urutan">{question.sort_order}</td>
+                <td data-label="Pertanyaan">{question.question_text}</td>
+                <td data-label="Dimensi">{dimName(question.dimension_id)}</td>
+                <td data-label="Bobot">{fmt(question.weight)}</td>
+                <td data-label="Reverse">{question.reverse_scoring ? 'Ya' : '—'}</td>
+                <td data-label="Status">
                   <span className={'badge ' + (question.is_active ? 'ok' : 'off')}>
                     {question.is_active ? 'Aktif' : 'Nonaktif'}
                   </span>

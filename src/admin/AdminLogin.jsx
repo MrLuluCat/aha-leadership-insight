@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import logo from '../assets/aha-logo.jpg'
 
 export default function AdminLogin({ onLogin }) {
   const [email, setEmail] = useState('')
@@ -22,7 +23,7 @@ export default function AdminLogin({ onLogin }) {
   return (
     <main className="wrap login-wrap">
       <div className="card login">
-        <p className="brand">AHA Leadership Centre</p>
+        <img className="logo sm" src={logo} alt="AHA Leadership Centre" />
         <h1 className="splash-title">Dashboard admin</h1>
         <p className="meta">Masuk menggunakan akun admin yang terdaftar.</p>
         <form onSubmit={submit} className="start">

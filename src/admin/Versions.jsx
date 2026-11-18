@@ -69,7 +69,6 @@ export default function Versions() {
     <>
       <header className="ahead">
         <div>
-          <p className="brand">Pengaturan asesmen</p>
           <h1>Versi asesmen</h1>
         </div>
         <div className="actions">
@@ -92,7 +91,7 @@ export default function Versions() {
       {notice && <p className="alert success">{notice}</p>}
 
       <div className="tablewrap card">
-        <table className="data">
+        <table className="data stack">
           <thead>
             <tr>
               <th>Versi</th>
@@ -115,18 +114,18 @@ export default function Versions() {
               )
               return (
                 <tr key={version.id}>
-                  <td>
+                  <td data-label="Versi">
                     <b>v{version.version_number}</b>
                   </td>
-                  <td>
+                  <td data-label="Status">
                     <span className={'badge ' + statusClass(version.status)}>
                       {statusLabel(version.status)}
                     </span>
                   </td>
-                  <td>{version.published_at ? dtfmt(version.published_at) : '—'}</td>
-                  <td>{dimensions.length}</td>
-                  <td>{questions.length}</td>
-                  <td>{fmt(totalWeight)}%</td>
+                  <td data-label="Dipublikasikan">{version.published_at ? dtfmt(version.published_at) : '—'}</td>
+                  <td data-label="Dimensi">{dimensions.length}</td>
+                  <td data-label="Pertanyaan">{questions.length}</td>
+                  <td data-label="Total bobot">{fmt(totalWeight)}%</td>
                   <td>
                     <button
                       className="thb"
@@ -163,7 +162,7 @@ export default function Versions() {
                 {version.published_at ? ` · Dipublikasikan ${dtfmt(version.published_at)}` : ''}
               </p>
               <div className="tablewrap">
-                <table className="data">
+                <table className="data stack">
                   <thead>
                     <tr>
                       <th>Dimensi</th>
@@ -174,9 +173,9 @@ export default function Versions() {
                   <tbody>
                     {dimensions.map((dimension) => (
                       <tr key={dimension.id}>
-                        <td>{dimension.name}</td>
-                        <td>{fmt(dimension.weight)}%</td>
-                        <td>
+                        <td data-label="Dimensi">{dimension.name}</td>
+                        <td data-label="Bobot">{fmt(dimension.weight)}%</td>
+                        <td data-label="Pertanyaan aktif">
                           {
                             questions.filter(
                               (question) => question.dimension_id === dimension.id

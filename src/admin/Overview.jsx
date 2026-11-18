@@ -47,7 +47,6 @@ export default function Overview() {
     <>
       <header className="ahead">
         <div>
-          <p className="brand">Statistik</p>
           <h1>Overview</h1>
         </div>
       </header>

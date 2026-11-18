@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Radar from './Radar'
+import logo from './assets/aha-logo.jpg'
 import Report from './Report'
 import Admin from './Admin'
 import { SCALE } from './scoring'
@@ -239,7 +240,7 @@ function Participant() {
   if (loading) {
     return (
       <main className="wrap splash">
-        <p className="brand">AHA Leadership Centre</p>
+        <img className="logo sm" src={logo} alt="AHA Leadership Centre" />
         <p className="meta">Memuat asesmen…</p>
       </main>
     )
@@ -249,7 +250,7 @@ function Participant() {
     return (
       <main className="wrap splash">
         <div className="card">
-          <p className="brand">AHA Leadership Centre</p>
+          <img className="logo sm" src={logo} alt="AHA Leadership Centre" />
           <h1 className="splash-title">Asesmen belum dapat dibuka</h1>
           <p className="lead">{loadError}</p>
           <a className="link" href="#/admin">
@@ -309,7 +310,7 @@ function Intro({ config, version, busy, error, onStart }) {
   return (
     <main className="wrap intro">
       <div className="copy">
-        <p className="brand">AHA Leadership Centre</p>
+        <img className="logo" src={logo} alt="AHA Leadership Centre — From Within to Beyond" />
         <h1>Kenali diri Anda sebagai pemimpin.</h1>
         <p className="lead">
           Tidak ada jawaban benar atau salah. Jawablah sesuai diri Anda yang sesungguhnya, bukan diri
