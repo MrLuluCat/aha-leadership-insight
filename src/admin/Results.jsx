@@ -1,13 +1,11 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
-import { CATS, SCALE } from '../scoring'
+import { useEffect, useState } from 'react'
+import { CATS } from '../scoring'
 import { fmt, dfmt, tfmt, dtfmt } from '../lib/format'
 import { exportResultsListExcel } from '../lib/exportExcel'
 import { fetchResultDetail, fetchResultsPage } from '../services/admin'
 import CustomDatePicker from './CustomDatePicker'
 import CustomSelect from './CustomSelect'
-import PageLoader from '../components/PageLoader'
-
-const Report = lazy(() => import('../Report'))
+import ResultDetailModal from './ResultDetailModal'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
@@ -342,13 +340,38 @@ export default function Results() {
               </tr>
             </thead>
             <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan="6" className="rs-empty">
-                    Memuat data peserta…
-                  </td>
-                </tr>
-              )}
+              {loading &&
+                Array.from({ length: 6 }).map((_, idx) => (
+                  <tr key={`sk-${idx}`} className="sk-tr" aria-hidden="true">
+                    <td>
+                      <div className="sk-cell-person">
+                        <span className="sk-circle" />
+                        <div className="sk-cell-lines">
+                          <span className="sk-line sk-w-60" />
+                          <span className="sk-line sk-w-40 sk-h-sm" />
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="sk-cell-lines">
+                        <span className="sk-line sk-w-60" />
+                        <span className="sk-line sk-w-40 sk-h-sm" />
+                      </div>
+                    </td>
+                    <td className="rs-num">
+                      <span className="sk-line sk-w-40 sk-inline" />
+                    </td>
+                    <td>
+                      <span className="sk-line sk-w-70" />
+                    </td>
+                    <td>
+                      <span className="sk-line sk-w-30" />
+                    </td>
+                    <td className="rs-act">
+                      <span className="sk-line sk-w-60 sk-inline" />
+                    </td>
+                  </tr>
+                ))}
               {!loading && !rows.length && (
                 <tr>
                   <td colSpan="6" className="rs-empty">
@@ -472,281 +495,13 @@ export default function Results() {
 
       {/* Detail dialog */}
       {selectedId && (
-        <div
-          className="rs-modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeDetail()
-          }}
-        >
-          <section
-            className="rs-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Detail hasil peserta"
-          >
-            <div className="rs-modal-head no-print">
-              <div>
-                <h2>Detail hasil</h2>
-                {detail && (
-                  <p>
-                    {detail.participant.email || 'Tanpa email'} · Versi konfigurasi{' '}
-                    {detail.version.version_number}
-                    {detail.version.published_at
-                      ? ` (dipublikasikan ${dfmt(detail.version.published_at)})`
-                      : ''}
-                  </p>
-                )}
-              </div>
-              <button type="button" className="rs-close" onClick={closeDetail} autoFocus>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-                Tutup
-              </button>
-            </div>
-
-            <div className="rs-modal-body">
-              {detailLoading && <p className="meta">Memuat detail peserta…</p>}
-              {detailError && <p className="alert">{detailError}</p>}
-              {detail && (
-                <>
-                  <Suspense fallback={<PageLoader variant="report" label="Memuat laporan peserta…" />}>
-                    <Report result={detail.result} compact />
-                  </Suspense>
-                  <details className="rs-answers">
-                    <summary>Detail jawaban peserta ({detail.responses.length})</summary>
-                    <AnswersDataTable
-                      responses={detail.responses}
-                      dimensions={detail.result.config?.dimensions ?? []}
-                    />
-                  </details>
-                </>
-              )}
-            </div>
-          </section>
-        </div>
+        <ResultDetailModal
+          detail={detail}
+          loading={detailLoading}
+          error={detailError}
+          onClose={closeDetail}
+        />
       )}
     </>
-  )
-}
-
-function AnswersDataTable({ responses, dimensions }) {
-  const [search, setSearch] = useState('')
-  const [dimFilter, setDimFilter] = useState('all')
-  const [sortKey, setSortKey] = useState('index')
-  const [sortDir, setSortDir] = useState('asc')
-  const [page, setPage] = useState(0)
-  const [pageSize, setPageSize] = useState(10)
-
-  const dimName = (id) => dimensions.find((d) => d.id === id)?.name ?? '—'
-
-  const enriched = responses.map((r, i) => ({
-    ...r,
-    index: i + 1,
-    dimension: dimName(r.question.dimension_id),
-    itemScore: ((r.corrected_answer - 1) / 4) * 100,
-  }))
-
-  const q = search.trim().toLowerCase()
-  const filtered = enriched.filter((r) => {
-    if (dimFilter !== 'all' && r.question.dimension_id !== dimFilter) return false
-    if (q) {
-      const hay = `${r.question.text} ${r.dimension} ${SCALE[r.answer - 1] ?? ''}`.toLowerCase()
-      if (!hay.includes(q)) return false
-    }
-    return true
-  })
-
-  const sorted = [...filtered].sort((a, b) => {
-    let cmp = 0
-    if (sortKey === 'index') cmp = a.index - b.index
-    else if (sortKey === 'dimension') cmp = a.dimension.localeCompare(b.dimension)
-    else if (sortKey === 'answer') cmp = a.answer - b.answer
-    else if (sortKey === 'score') cmp = a.itemScore - b.itemScore
-    return sortDir === 'asc' ? cmp : -cmp
-  })
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
-  const safePage = Math.min(page, totalPages - 1)
-  const paged = sorted.slice(safePage * pageSize, safePage * pageSize + pageSize)
-
-  function handleSort(key) {
-    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else {
-      setSortKey(key)
-      setSortDir('asc')
-    }
-    setPage(0)
-  }
-
-  const sortIcon = (key) => {
-    if (sortKey !== key) return <span className="rs-sort-icon" aria-hidden="true">↕</span>
-    return (
-      <span className="rs-sort-icon on" aria-hidden="true">
-        {sortDir === 'asc' ? '▲' : '▼'}
-      </span>
-    )
-  }
-
-  return (
-    <div className="rs-answers-dt">
-      <div className="rs-toolbar">
-        <div className="rs-search">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="11" cy="11" r="8" />
-            <path d="M21 21l-4.35-4.35" />
-          </svg>
-          <input
-            type="search"
-            placeholder="Cari pertanyaan atau jawaban…"
-            aria-label="Cari pertanyaan atau jawaban"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
-              setPage(0)
-            }}
-          />
-        </div>
-
-        <CustomSelect
-          ariaLabel="Filter dimensi"
-          value={dimFilter}
-          onChange={(val) => {
-            setDimFilter(val)
-            setPage(0)
-          }}
-          options={[
-            { value: 'all', label: 'Semua dimensi' },
-            ...dimensions.map((d) => ({ value: d.id, label: d.name })),
-          ]}
-        />
-      </div>
-
-      <div className="rs-table-wrap">
-        <table className="rs-table rs-table-sm">
-          <thead>
-            <tr>
-              <th>
-                <button type="button" className="rs-sort" onClick={() => handleSort('index')}>
-                  <span>#</span>
-                  {sortIcon('index')}
-                </button>
-              </th>
-              <th>Pertanyaan</th>
-              <th>
-                <button type="button" className="rs-sort" onClick={() => handleSort('dimension')}>
-                  <span>Dimensi</span>
-                  {sortIcon('dimension')}
-                </button>
-              </th>
-              <th>
-                <button type="button" className="rs-sort" onClick={() => handleSort('answer')}>
-                  <span>Jawaban</span>
-                  {sortIcon('answer')}
-                </button>
-              </th>
-              <th className="rs-num">
-                <button type="button" className="rs-sort" onClick={() => handleSort('score')}>
-                  <span>Skor butir</span>
-                  {sortIcon('score')}
-                </button>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {paged.map((response) => (
-              <tr key={response.question_id}>
-                <td data-label="No.">
-                  <span className="rs-ver">#{response.index}</span>
-                </td>
-                <td data-label="Pertanyaan">
-                  {response.question.text}
-                  {response.question.reverse_scoring && <small className="tag">reverse</small>}
-                </td>
-                <td data-label="Dimensi">{response.dimension}</td>
-                <td data-label="Jawaban">
-                  {response.answer} · {SCALE[response.answer - 1]}
-                </td>
-                <td data-label="Skor butir" className="rs-num">
-                  <strong>{fmt(response.itemScore)}</strong>
-                </td>
-              </tr>
-            ))}
-            {!paged.length && (
-              <tr>
-                <td colSpan="5" className="rs-empty">
-                  Tidak ada jawaban yang cocok dengan filter.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="rs-footer">
-        <div className="rs-size">
-          <span>Tampilkan</span>
-          <CustomSelect
-            className="cs-compact"
-            ariaLabel="Jumlah jawaban per halaman"
-            value={pageSize}
-            onChange={(val) => {
-              setPageSize(Number(val))
-              setPage(0)
-            }}
-            options={PAGE_SIZE_OPTIONS.map((opt) => ({ value: opt, label: String(opt) }))}
-          />
-          <span>entri</span>
-        </div>
-
-        <span className="rs-info">
-          {sorted.length === 0
-            ? '0 entri'
-            : `${safePage * pageSize + 1}–${Math.min((safePage + 1) * pageSize, sorted.length)} dari ${sorted.length}`}
-        </span>
-
-        <nav className="rs-pager" aria-label="Paginasi jawaban">
-          <button
-            type="button"
-            className="rs-pg"
-            disabled={safePage === 0}
-            onClick={() => setPage(0)}
-            aria-label="Halaman pertama"
-          >
-            «
-          </button>
-          <button
-            type="button"
-            className="rs-pg"
-            disabled={safePage === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            aria-label="Halaman sebelumnya"
-          >
-            ‹
-          </button>
-          <span className="rs-pg-now">
-            {safePage + 1} / {totalPages}
-          </span>
-          <button
-            type="button"
-            className="rs-pg"
-            disabled={safePage + 1 >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            aria-label="Halaman berikutnya"
-          >
-            ›
-          </button>
-          <button
-            type="button"
-            className="rs-pg"
-            disabled={safePage + 1 >= totalPages}
-            onClick={() => setPage(totalPages - 1)}
-            aria-label="Halaman terakhir"
-          >
-            »
-          </button>
-        </nav>
-      </div>
-    </div>
   )
 }

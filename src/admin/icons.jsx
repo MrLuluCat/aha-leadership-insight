@@ -118,6 +118,18 @@ const paths = {
       <path d="M4.5 12v6.5c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V12" />
     </>
   ),
+  alert: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4M12 16h.01" />
+    </>
+  ),
+  radar: (
+    <>
+      <polygon points="12 3 20 8.5 17.5 18 6.5 18 4 8.5 12 3" />
+      <polygon points="12 7.5 16 10.5 14.5 15 9.5 15 8 10.5 12 7.5" />
+    </>
+  ),
 }
 
 export default function Icon({ name, size = 20 }) {

@@ -32,6 +32,9 @@ Jalankan file SQL berikut secara berurutan di Supabase SQL Editor:
 2. `supabase/migrations/0002_functions.sql` — RPC scoring, validasi, statistik.
 3. `supabase/migrations/0003_seed.sql` — 7 dimensi + pertanyaan awal, versi 1
    published dan versi 2 draft.
+4. `supabase/migrations/0004_restore_rpc.sql` — RPC `admin_restore_full_backup`
+   (restore lintas-database lengkap: dimensi, pertanyaan, versi, hasil & jawaban peserta)
+   dan `admin_delete_result`.
 
 ### Membuat admin pertama
 

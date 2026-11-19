@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fmt } from '../lib/format'
 import CustomSelect from './CustomSelect'
+import PageLoader from '../components/PageLoader'
 import {
   fetchDimensions,
   fetchQuestions,
@@ -418,7 +419,7 @@ export default function Dimensions() {
     qStatusFilter !== 'all' ||
     qReverseFilter !== 'all'
 
-  if (loading) return <p className="meta">Memuat dimensi dan bobot…</p>
+  if (loading) return <PageLoader variant="dimensions" label="Memuat dimensi dan bobot…" />
 
   const radius = 18
   const circumference = 2 * Math.PI * radius

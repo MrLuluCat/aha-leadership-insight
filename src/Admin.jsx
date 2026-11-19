@@ -233,7 +233,14 @@ export default function Admin() {
 
       <main className="admin-main" id="admin-content">
         <section className="admin-body">
-          <Suspense fallback={<PageLoader variant="admin" label="Memuat halaman…" />}>
+          <Suspense
+            fallback={
+              <PageLoader
+                variant={tab === 'overview' ? 'overview' : tab === 'dimensions' ? 'dimensions' : 'admin'}
+                label="Memuat halaman…"
+              />
+            }
+          >
             {tab === 'overview' && <Overview />}
             {tab === 'results' && <Results />}
             {tab === 'questions' && <Questions />}

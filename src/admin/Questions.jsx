@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fmt } from '../lib/format'
 import CustomSelect from './CustomSelect'
+import PageLoader from '../components/PageLoader'
 import {
   createQuestion,
   deleteQuestion,
@@ -264,7 +265,7 @@ export default function Questions() {
     </th>
   )
 
-  if (loading) return <p className="meta">Memuat pertanyaan…</p>
+  if (loading) return <PageLoader variant="admin" label="Memuat pertanyaan…" />
 
   return (
     <>

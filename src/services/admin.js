@@ -99,6 +99,12 @@ export async function updateDimension(id, patch) {
   return data
 }
 
+export async function createDimension(row) {
+  const { data, error } = await requireClient().from('dimensions').insert(row).select().single()
+  if (error) throw error
+  return data
+}
+
 export async function fetchVersions() {
   const { data, error } = await requireClient()
     .from('assessment_versions')
@@ -152,12 +158,125 @@ export async function fetchAllResultsList() {
 
 export async function deleteResultRecord(resultId) {
   const client = requireClient()
-  // Tryassessment_results or results table, or RPC if available
+  const { error: rpcErr } = await client.rpc('admin_delete_result', { p_result_id: resultId })
+  if (!rpcErr) return true
   const { error: resErr } = await client.from('assessment_results').delete().eq('id', resultId)
   if (!resErr) return true
-  const { error: altErr } = await client.from('results').delete().eq('id', resultId)
-  if (!altErr) return true
-  throw new Error(resErr.message || 'Penghapusan hasil memerlukan izin RLS DELETE pada tabel assessment_results di Supabase.')
+  throw new Error(
+    rpcErr.message ||
+      resErr.message ||
+      'Penghapusan hasil memerlukan migrasi 0004_restore_rpc.sql pada Supabase SQL Editor.'
+  )
+}
+
+export async function restoreFullBackupRpc(payload) {
+  const { data, error } = await requireClient().rpc('admin_restore_full_backup', {
+    p_payload: payload,
+  })
+  if (error) {
+    const msg = String(error.message || '')
+    const isMissingFn =
+      error.code === 'PGRST202' ||
+      msg.includes('Could not find the function') ||
+      msg.includes('admin_restore_full_backup')
+    if (isMissingFn) {
+      return { rpcMissing: true, error: msg }
+    }
+    throw error
+  }
+  return { rpcMissing: false, counts: data }
+}
+
+export async function restoreConfigCrossDb(backupDims, backupQs, existingDims, existingQs) {
+  const norm = (s) => String(s || '').trim().toLowerCase()
+  const dimIdMap = new Map()
+  const dimNameMap = new Map()
+  const currentDims = [...(existingDims ?? [])]
+  const currentQs = [...(existingQs ?? [])]
+
+  let syncedDims = 0
+  let syncedQs = 0
+
+  for (const d of backupDims ?? []) {
+    const match =
+      currentDims.find((ex) => d.id && ex.id === d.id) ||
+      currentDims.find((ex) => norm(ex.name) === norm(d.name)) ||
+      currentDims.find((ex) => Number(ex.sort_order) === Number(d.sort_order))
+
+    const patch = {
+      name: String(d.name || 'Dimensi').trim(),
+      short_name: d.short_name ?? '',
+      description: d.description ?? '',
+      weight: Math.max(0, Number(d.weight ?? 0)),
+      strength_guidance: d.strength_guidance ?? '',
+      development_guidance: d.development_guidance ?? '',
+      sort_order: Number(d.sort_order ?? 0),
+      is_active: d.is_active !== false,
+    }
+
+    let saved
+    if (match) {
+      saved = await updateDimension(match.id, patch)
+    } else {
+      saved = await createDimension(patch)
+      currentDims.push(saved)
+    }
+    if (d.id) dimIdMap.set(d.id, saved.id)
+    dimNameMap.set(norm(saved.name), saved.id)
+    if (d.name) dimNameMap.set(norm(d.name), saved.id)
+    syncedDims++
+  }
+
+  for (const ex of currentDims) {
+    if (!dimNameMap.has(norm(ex.name))) {
+      dimNameMap.set(norm(ex.name), ex.id)
+    }
+  }
+
+  const fallbackDimId = currentDims[0]?.id ?? null
+
+  for (const q of backupQs ?? []) {
+    const qText = String(q.question_text ?? q.text ?? '').trim()
+    if (!qText) continue
+
+    const targetDimId =
+      (q.dimension_id && dimIdMap.get(q.dimension_id)) ||
+      (q.dimension_name && dimNameMap.get(norm(q.dimension_name))) ||
+      (q.dimension_id && currentDims.find((d) => d.id === q.dimension_id)?.id) ||
+      fallbackDimId
+
+    if (!targetDimId) continue
+
+    const match =
+      currentQs.find((ex) => q.id && ex.id === q.id) ||
+      currentQs.find(
+        (ex) => ex.dimension_id === targetDimId && norm(ex.question_text) === norm(qText)
+      ) ||
+      currentQs.find(
+        (ex) =>
+          ex.dimension_id === targetDimId &&
+          Number(ex.sort_order) === Number(q.sort_order)
+      )
+
+    const patch = {
+      dimension_id: targetDimId,
+      question_text: qText,
+      weight: Math.max(0.01, Number(q.weight ?? 1)),
+      reverse_scoring: Boolean(q.reverse_scoring),
+      sort_order: Number(q.sort_order ?? 0),
+      is_active: q.is_active !== false,
+    }
+
+    if (match) {
+      await updateQuestion(match.id, patch)
+    } else {
+      const created = await createQuestion(patch)
+      currentQs.push(created)
+    }
+    syncedQs++
+  }
+
+  return { dimensions: syncedDims, questions: syncedQs }
 }
 
 async function safeSelectTable(tableName, orderByCol = 'created_at') {
@@ -187,8 +306,8 @@ export async function fetchAllDatabaseTables() {
     safeSelectTable('profiles', 'email'),
     safeSelectTable('participants', 'created_at'),
     safeSelectTable('assessment_sessions', 'started_at'),
-    safeSelectTable('assessment_results', 'completed_at'),
-    safeSelectTable('assessment_responses', 'created_at'),
+    safeSelectTable('assessment_results', 'created_at'),
+    safeSelectTable('responses', 'created_at'),
   ])
 
   return {
@@ -196,7 +315,7 @@ export async function fetchAllDatabaseTables() {
     participants: participants ?? [],
     assessment_sessions: sessions ?? [],
     assessment_results: rawResults ?? [],
-    assessment_responses: rawResponses ?? [],
+    responses: rawResponses ?? [],
   }
 }
 

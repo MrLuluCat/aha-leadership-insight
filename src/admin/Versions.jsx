@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { dtfmt, fmt } from '../lib/format'
 import { fetchVersions, publishAssessment, saveDraft } from '../services/admin'
 import CustomSelect from './CustomSelect'
+import PageLoader from '../components/PageLoader'
 
 const PAGE_SIZES = [10, 25, 50]
 
@@ -149,7 +150,7 @@ export default function Versions() {
     </th>
   )
 
-  if (loading) return <p className="meta">Memuat versi asesmen…</p>
+  if (loading) return <PageLoader variant="admin" label="Memuat versi asesmen…" />
 
   return (
     <>

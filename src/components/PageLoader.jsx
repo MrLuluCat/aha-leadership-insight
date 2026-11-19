@@ -1,4 +1,61 @@
 export default function PageLoader({ variant = 'page', label = 'Memuat halamanâ€¦' }) {
+  if (variant === 'overview') {
+    return (
+      <div className="sk-wrap" role="status" aria-live="polite" aria-label={label}>
+        <div className="sk-head">
+          <div className="sk-stack">
+            <div className="sk-line sk-w-30 sk-h-lg" />
+            <div className="sk-line sk-w-70" />
+          </div>
+          <div className="sk-pill" />
+        </div>
+        <div className="ov-stats-row">
+          <div className="sk-card sk-h-96" />
+          <div className="sk-card sk-h-96" />
+          <div className="sk-card sk-h-96" />
+          <div className="sk-card sk-h-96" />
+          <div className="sk-card sk-h-96" />
+        </div>
+        <div className="ov-bento-row">
+          <div className="sk-card sk-h-260" />
+          <div className="sk-card sk-h-260" />
+        </div>
+        <div className="ov-bento-row">
+          <div className="sk-card sk-h-240" />
+          <div className="sk-card sk-h-240" />
+        </div>
+      </div>
+    )
+  }
+
+  if (variant === 'dimensions') {
+    return (
+      <div className="sk-wrap" role="status" aria-live="polite" aria-label={label}>
+        <div className="sk-head">
+          <div className="sk-stack">
+            <div className="sk-line sk-w-40 sk-h-lg" />
+            <div className="sk-line sk-w-70" />
+          </div>
+          <div className="sk-pill" />
+        </div>
+        <div className="sk-toolbar">
+          <div className="sk-box sk-w-140" />
+          <div className="sk-box sk-w-140" />
+          <div className="sk-box sk-w-140" />
+          <div className="sk-box sk-w-140" />
+        </div>
+        <div className="sk-card sk-h-260" />
+        <div className="sk-card">
+          <div className="sk-rows">
+            <div className="sk-row" />
+            <div className="sk-row" />
+            <div className="sk-row" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (variant === 'admin') {
     return (
       <div className="sk-wrap" role="status" aria-live="polite" aria-label={label}>
@@ -23,6 +80,23 @@ export default function PageLoader({ variant = 'page', label = 'Memuat halamanâ€
             <div className="sk-row" />
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (variant === 'modal-report') {
+    return (
+      <div className="sk-wrap" role="status" aria-live="polite" aria-label={label}>
+        <div className="sk-grid-3">
+          <div className="sk-card sk-h-220" />
+          <div className="sk-card sk-h-220" />
+          <div className="sk-card sk-h-220" />
+        </div>
+        <div className="sk-grid-2">
+          <div className="sk-card sk-h-160" />
+          <div className="sk-card sk-h-160" />
+        </div>
+        <div className="sk-card sk-h-160" />
       </div>
     )
   }

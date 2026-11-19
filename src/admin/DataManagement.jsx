@@ -9,10 +9,12 @@ import {
   fetchQuestions,
   fetchResultDetail,
   fetchVersions,
-  saveConfiguration,
+  restoreConfigCrossDb,
+  restoreFullBackupRpc,
   saveDraft,
 } from '../services/admin'
 import CustomSelect from './CustomSelect'
+import PageLoader from '../components/PageLoader'
 
 const BACKUP_LOG_KEY = 'aha_admin_backup_logs_v1'
 const SCALE_LABELS = ['Sangat Jarang', 'Jarang', 'Kadang-kadang', 'Sering', 'Sangat Sering']
@@ -383,7 +385,10 @@ export default function DataManagement() {
     for (let i = 0; i < total; i += batchSize) {
       const slice = results.slice(i, i + batchSize)
       const chunkDetails = await Promise.all(
-        slice.map((r) => fetchResultDetail(r.result_id).catch(() => null))
+        slice.map(async (r) => {
+          const d = await fetchResultDetail(r.result_id).catch(() => null)
+          return d ? { ...d, _result_id: r.result_id } : null
+        })
       )
       for (const d of chunkDetails) {
         if (d) details.push(d)
@@ -721,6 +726,7 @@ export default function DataManagement() {
       // 5. Participant Granular Answers + Dimension Scores
       for (const det of details) {
         const res = det.result ?? {}
+        const resId = det._result_id || res.id || res.session_id || ''
         const pName = res.participant_name ?? det.participant?.name ?? ''
         const pEmail = det.participant?.email ?? ''
         const vNum = det.version?.version_number ?? res.version_number ?? ''
@@ -733,13 +739,13 @@ export default function DataManagement() {
         for (const ds of dimScores) {
           rows.push([
             '5_PARTICIPANT_DIMENSION_SCORES',
-            `${res.id}_${ds.dimension_id || ds.name}`,
-            res.id ?? '',
+            `${resId}_${ds.dimension_id || ds.id || ds.name}`,
+            resId,
             `v${vNum}`,
             'scored',
             pName,
             pEmail,
-            ds.name || findDim(ds.dimension_id),
+            ds.name || findDim(ds.dimension_id || ds.id),
             '',
             ds.score ?? '',
             ds.category ?? '',
@@ -758,8 +764,8 @@ export default function DataManagement() {
           const itemScore = (((Number(resp.corrected_answer || 1) - 1) / 4) * 100).toFixed(2)
           rows.push([
             '6_PARTICIPANT_ANSWERS',
-            `${res.id}_Q${idx + 1}`,
-            res.id ?? '',
+            `${resId}_Q${idx + 1}`,
+            resId,
             idx + 1,
             'answered',
             pName,
@@ -947,19 +953,71 @@ export default function DataManagement() {
           const parsed = JSON.parse(content)
           const nextDims = parsed.dimensions ?? parsed.configuration_snapshot?.dimensions ?? []
           const nextQs = parsed.questions ?? parsed.configuration_snapshot?.questions ?? []
-          if (!Array.isArray(nextDims) || !nextDims.length) {
-            throw new Error('File JSON tidak berisi array "dimensions" yang valid.')
+          const nextVersions = Array.isArray(parsed.assessment_versions)
+            ? parsed.assessment_versions
+            : []
+
+          const nextResults = []
+          if (Array.isArray(parsed.results_detailed) && parsed.results_detailed.length > 0) {
+            for (const det of parsed.results_detailed) {
+              const res = det.result ?? {}
+              nextResults.push({
+                participant_name: res.participant_name ?? det.participant?.name ?? '',
+                participant_email: det.participant?.email ?? '',
+                completed_at: res.completed_at ?? '',
+                version_number: Number(det.version?.version_number ?? res.version_number ?? 1),
+                overall_score: Number(res.overall_score ?? 0),
+                category:
+                  typeof res.category === 'object'
+                    ? res.category?.name ?? 'Cukup Berkembang'
+                    : res.category ?? 'Cukup Berkembang',
+                overall_narrative: typeof res.category === 'object' ? res.category?.mean ?? '' : '',
+                dimension_scores: res.dimension_scores ?? [],
+                result_snapshot: res,
+                responses: det.responses ?? [],
+              })
+            }
+          } else if (Array.isArray(parsed.results_summary) && parsed.results_summary.length > 0) {
+            for (const r of parsed.results_summary) {
+              nextResults.push({
+                participant_name: r.participant_name ?? '',
+                participant_email: r.participant_email ?? '',
+                completed_at: r.assessment_date ?? '',
+                version_number: Number(r.version_number ?? 1),
+                overall_score: Number(r.overall_score ?? 0),
+                category: r.category ?? 'Cukup Berkembang',
+                dimension_scores: [],
+                responses: [],
+              })
+            }
           }
-          buildRestorePreview(file.name, 'JSON', nextDims, nextQs)
+
+          if (!nextDims.length && !nextQs.length && !nextResults.length) {
+            throw new Error('File JSON tidak berisi data backup AHA yang valid.')
+          }
+          buildRestorePreview(file.name, 'Full JSON Snapshot', {
+            dimensions: nextDims,
+            questions: nextQs,
+            versions: nextVersions,
+            participantResults: nextResults,
+          })
         } else if (file.name.toLowerCase().endsWith('.csv')) {
           const { items } = parseCsvText(content)
           if (!items.length) throw new Error('File CSV kosong atau tidak terbaca.')
 
-          // Check if it's a Full Master Backup CSV, Dimensions CSV, or Questions CSV
-          const masterDims = items.filter((r) => r.dataset_section === '1_DIMENSIONS')
-          const masterQs = items.filter((r) => r.dataset_section === '2_QUESTIONS')
+          const first = items[0]
+          const hasMasterSections = items.some((r) => Boolean(r.dataset_section))
 
-          if (masterDims.length > 0) {
+          if (hasMasterSections) {
+            const masterDims = items.filter((r) => r.dataset_section === '1_DIMENSIONS')
+            const masterQs = items.filter((r) => r.dataset_section === '2_QUESTIONS')
+            const masterVers = items.filter((r) => r.dataset_section === '3_ASSESSMENT_VERSIONS')
+            const masterRes = items.filter((r) => r.dataset_section === '4_PARTICIPANT_RESULTS')
+            const masterDimScores = items.filter(
+              (r) => r.dataset_section === '5_PARTICIPANT_DIMENSION_SCORES'
+            )
+            const masterAnswers = items.filter((r) => r.dataset_section === '6_PARTICIPANT_ANSWERS')
+
             const parsedDims = masterDims.map((r) => {
               let extra = {}
               try {
@@ -979,17 +1037,133 @@ export default function DataManagement() {
                 development_guidance: extra.development_guidance ?? '',
               }
             })
+
             const parsedQs = masterQs.map((r) => ({
               id: r.record_id,
               dimension_id: r.parent_id,
+              dimension_name: r.dimension_name ?? '',
               sort_order: Number(r.sort_or_version || 1),
               question_text: r.text_or_description,
               weight: Number(r.weight_or_score || 1),
               reverse_scoring: r.reverse_scoring === 'true',
               is_active: r.status_or_active === 'active',
             }))
-            buildRestorePreview(file.name, 'Master CSV', parsedDims, parsedQs)
-          } else if (items[0].dataset_table === 'dimensions' || items[0].dimension_id) {
+
+            const parsedVersions = masterVers.map((r) => {
+              let snap = null
+              try {
+                snap = JSON.parse(r.extra_guidance_or_json || 'null')
+              } catch {
+                snap = null
+              }
+              return {
+                version_number: Number(String(r.sort_or_version || '1').replace(/^v/i, '')) || 1,
+                status: r.status_or_active || 'archived',
+                published_at: r.timestamp || null,
+                created_at: r.timestamp || null,
+                configuration_snapshot: snap,
+              }
+            })
+
+            // Reconstruct participant results + dimension_scores + responses by parent_id OR fallback participant+timestamp
+            const makeFallbackKey = (name, ts) =>
+              `${String(name || '').trim().toLowerCase()}__${String(ts || '').slice(0, 19)}`
+
+            const dimScoresByResult = new Map()
+            const dimScoresByFallback = new Map()
+            for (const ds of masterDimScores) {
+              const item = {
+                name: ds.dimension_name,
+                score: Number(ds.weight_or_score || 0),
+                category: ds.category_or_label || '',
+              }
+              const pid = ds.parent_id || ''
+              if (pid) {
+                if (!dimScoresByResult.has(pid)) dimScoresByResult.set(pid, [])
+                dimScoresByResult.get(pid).push(item)
+              }
+              const fkey = makeFallbackKey(ds.name_or_participant, ds.timestamp)
+              if (!dimScoresByFallback.has(fkey)) dimScoresByFallback.set(fkey, [])
+              dimScoresByFallback.get(fkey).push(item)
+            }
+
+            const answersByResult = new Map()
+            const answersByFallback = new Map()
+            for (const ans of masterAnswers) {
+              const item = {
+                sort_order: Number(ans.sort_or_version || 0),
+                question_text: ans.text_or_description || '',
+                dimension_name: ans.dimension_name || '',
+                reverse_scoring: ans.reverse_scoring === 'true',
+                answer: Number(ans.raw_answer || 3),
+                corrected_answer: Number(ans.corrected_answer || ans.raw_answer || 3),
+              }
+              const pid = ans.parent_id || ''
+              if (pid) {
+                if (!answersByResult.has(pid)) answersByResult.set(pid, [])
+                answersByResult.get(pid).push(item)
+              }
+              const fkey = makeFallbackKey(ans.name_or_participant, ans.timestamp)
+              if (!answersByFallback.has(fkey)) answersByFallback.set(fkey, [])
+              answersByFallback.get(fkey).push(item)
+            }
+
+            const parsedResults = masterRes.map((r) => {
+              const fkey = makeFallbackKey(r.name_or_participant, r.timestamp)
+              return {
+                participant_name: r.name_or_participant || '',
+                participant_email: r.email_or_short_name || '',
+                completed_at: r.timestamp || '',
+                version_number: Number(String(r.sort_or_version || '1').replace(/^v/i, '')) || 1,
+                overall_score: Number(r.weight_or_score || 0),
+                category: r.category_or_label || 'Cukup Berkembang',
+                dimension_scores:
+                  dimScoresByResult.get(r.record_id) ?? dimScoresByFallback.get(fkey) ?? [],
+                responses:
+                  answersByResult.get(r.record_id) ?? answersByFallback.get(fkey) ?? [],
+              }
+            })
+
+            buildRestorePreview(file.name, 'Full Master CSV', {
+              dimensions: parsedDims,
+              questions: parsedQs,
+              versions: parsedVersions,
+              participantResults: parsedResults,
+            })
+          } else if ('overall_leadership_index' in first || 'raw_dimension_scores_json' in first) {
+            // Format: Backup Lengkap Hasil Asesmen Peserta (.CSV)
+            const parsedResults = items.map((r) => {
+              let dimScores = []
+              let responses = []
+              try {
+                dimScores = JSON.parse(r.raw_dimension_scores_json || '[]')
+              } catch {
+                dimScores = []
+              }
+              try {
+                responses = JSON.parse(r.raw_responses_json || '[]')
+              } catch {
+                responses = []
+              }
+              return {
+                participant_name: r.participant_name || '',
+                participant_email: r.participant_email || '',
+                completed_at: r.completed_at_iso || '',
+                version_number: Number(r.version_number || 1),
+                overall_score: Number(r.overall_leadership_index || 0),
+                category: r.overall_category || 'Cukup Berkembang',
+                overall_narrative: r.overall_narrative || '',
+                dimension_scores: dimScores,
+                responses,
+              }
+            })
+            buildRestorePreview(file.name, 'CSV Backup Lengkap Hasil Peserta', {
+              dimensions: [],
+              questions: [],
+              versions: [],
+              participantResults: parsedResults,
+            })
+          } else if (first.dataset_table === 'dimensions' || first.dimension_id) {
             const parsedDims = items.map((r) => ({
               id: r.dimension_id || r.id,
               sort_order: Number(r.sort_order || 1),
@@ -1001,18 +1175,46 @@ export default function DataManagement() {
               strength_guidance: r.strength_guidance ?? '',
               development_guidance: r.development_guidance ?? '',
             }))
-            buildRestorePreview(file.name, 'CSV Dimensi', parsedDims, questions)
-          } else if (items[0].dataset_table === 'questions' || items[0].question_id) {
+            buildRestorePreview(file.name, 'CSV Dimensi', {
+              dimensions: parsedDims,
+              questions: [],
+              versions: [],
+              participantResults: [],
+            })
+          } else if (first.dataset_table === 'questions' || first.question_id) {
             const parsedQs = items.map((r) => ({
               id: r.question_id || r.id,
               sort_order: Number(r.sort_order || 1),
               dimension_id: r.dimension_id,
+              dimension_name: r.dimension_name ?? '',
               question_text: r.question_text,
               weight: Number(r.weight || 1),
               reverse_scoring: String(r.reverse_scoring).toLowerCase() === 'true',
               is_active: String(r.is_active).toLowerCase() === 'true',
             }))
-            buildRestorePreview(file.name, 'CSV Pertanyaan', dimensions, parsedQs)
+            buildRestorePreview(file.name, 'CSV Pertanyaan', {
+              dimensions: [],
+              questions: parsedQs,
+              versions: [],
+              participantResults: [],
+            })
+          } else if (first.dataset_table === 'results_summary' || first.result_id) {
+            const parsedResults = items.map((r) => ({
+              participant_name: r.participant_name || '',
+              participant_email: r.participant_email || '',
+              completed_at: r.assessment_date || '',
+              version_number: Number(r.version_number || 1),
+              overall_score: Number(r.overall_score || 0),
+              category: r.category || 'Cukup Berkembang',
+              dimension_scores: [],
+              responses: [],
+            }))
+            buildRestorePreview(file.name, 'CSV Ringkasan Hasil Peserta', {
+              dimensions: [],
+              questions: [],
+              versions: [],
+              participantResults: parsedResults,
+            })
           } else {
             throw new Error(
               'Format CSV tidak dikenali. Gunakan file CSV dari menu Backup Dataset AHA.'
@@ -1029,17 +1231,24 @@ export default function DataManagement() {
     reader.readAsText(file)
   }
 
-  function buildRestorePreview(filename, format, nextDims, nextQs) {
-    const activeWeight = nextDims
-      .filter((d) => d.is_active)
-      .reduce((s, d) => s + Number(d.weight || 0), 0)
-    const weightValid = Math.abs(activeWeight - 100) < 0.01
+  function buildRestorePreview(filename, format, payload) {
+    const nextDims = payload.dimensions ?? []
+    const nextQs = payload.questions ?? []
+    const nextVersions = payload.versions ?? []
+    const nextResults = payload.participantResults ?? []
+
+    const activeWeight = nextDims.length
+      ? nextDims.filter((d) => d.is_active).reduce((s, d) => s + Number(d.weight || 0), 0)
+      : 100
+    const weightValid = nextDims.length === 0 || Math.abs(activeWeight - 100) < 0.01
 
     setRestorePreview({
       filename,
       format,
       dimensions: nextDims,
-      questions: nextQs.length ? nextQs : questions,
+      questions: nextQs,
+      versions: nextVersions,
+      participantResults: nextResults,
       activeWeight,
       weightValid,
     })
@@ -1047,20 +1256,69 @@ export default function DataManagement() {
 
   async function applyRestoreToWorkingDraft() {
     if (!restorePreview) return
-    setBusyLabel('Memulihkan konfigurasi ke Working Draft…')
+    setBusyLabel('Memulihkan data backup ke database aktif…')
     setError('')
     setNotice('')
     try {
-      await saveConfiguration(restorePreview.dimensions, restorePreview.questions)
-      const draft = await saveDraft()
-      setNotice(
-        `Konfigurasi dari "${restorePreview.filename}" berhasil dipulihkan dan disimpan sebagai Draft Versi ${draft.version_number}.`
-      )
-      setRestorePreview(null)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      await loadAllData()
+      const rpcPayload = {
+        dimensions: restorePreview.dimensions,
+        questions: restorePreview.questions,
+        versions: restorePreview.versions,
+        participant_results: restorePreview.participantResults,
+      }
+
+      const res = await restoreFullBackupRpc(rpcPayload)
+
+      if (!res.rpcMissing) {
+        const c = res.counts ?? {}
+        const parts = []
+        if (c.dimensions) parts.push(`${c.dimensions} dimensi`)
+        if (c.questions) parts.push(`${c.questions} pertanyaan`)
+        if (c.versions) parts.push(`${c.versions} versi`)
+        if (c.results) parts.push(`${c.results} hasil peserta`)
+        if (c.responses) parts.push(`${c.responses} jawaban`)
+        setNotice(
+          `Restore lintas-database dari "${restorePreview.filename}" berhasil: ${parts.join(', ') || 'data sudah sinkron'}.`
+        )
+        setRestorePreview(null)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+        await loadAllData()
+        return
+      }
+
+      // Fallback when 0004_restore_rpc.sql has not been executed on the target Supabase DB yet
+      const hasConfig =
+        restorePreview.dimensions.length > 0 || restorePreview.questions.length > 0
+      const hasResultsOrVersions =
+        restorePreview.participantResults.length > 0 || restorePreview.versions.length > 0
+
+      if (hasConfig) {
+        const synced = await restoreConfigCrossDb(
+          restorePreview.dimensions,
+          restorePreview.questions,
+          dimensions,
+          questions
+        )
+        const draft = await saveDraft()
+        const msg = `Konfigurasi berhasil dipulihkan lintas-database (${synced.dimensions} dimensi, ${synced.questions} pertanyaan) ke Draft v${draft.version_number}.`
+        if (hasResultsOrVersions) {
+          setNotice(msg)
+          setError(
+            `Untuk ikut memulihkan ${restorePreview.participantResults.length} hasil peserta & ${restorePreview.versions.length} versi ke database baru ini, jalankan file migrasi "supabase/migrations/0004_restore_rpc.sql" sekali di Supabase SQL Editor lalu klik Pulihkan lagi.`
+          )
+        } else {
+          setNotice(msg)
+          setRestorePreview(null)
+          if (fileInputRef.current) fileInputRef.current.value = ''
+        }
+        await loadAllData()
+      } else {
+        setError(
+          `Database target belum memiliki fungsi restore hasil peserta. Jalankan file "supabase/migrations/0004_restore_rpc.sql" di Supabase SQL Editor terlebih dahulu, lalu ulangi restore.`
+        )
+      }
     } catch (err) {
-      setError(err.message || 'Gagal menerapkan pemulihan konfigurasi.')
+      setError(err.message || 'Gagal menerapkan pemulihan backup.')
     } finally {
       setBusyLabel('')
     }
@@ -1137,7 +1395,7 @@ export default function DataManagement() {
     }
   }
 
-  if (loading) return <p className="meta">Memuat pusat pengelolaan data & backup…</p>
+  if (loading) return <PageLoader variant="admin" label="Memuat pusat pengelolaan data & backup…" />
 
   return (
     <>
@@ -1530,17 +1788,17 @@ export default function DataManagement() {
         </div>
       )}
 
-      {/* TAB 2: RESTORE & IMPOR KONFIGURASI */}
+      {/* TAB 2: RESTORE & IMPOR BACKUP LINTAS-DATABASE */}
       {subTab === 'restore' && (
         <section className="rs-card dm-pad-card">
           <div className="dm-restore-intro">
-            <h2>Restore Konfigurasi dari File Backup (.CSV / .JSON)</h2>
+            <h2>Restore Full Backup Lintas-Database (.CSV / .JSON)</h2>
             <p className="rs-sub">
-              Unggah file <strong>Full Master Backup (.CSV)</strong>,{' '}
+              Unggah file <strong>Full Master Database Backup (.CSV)</strong>,{' '}
+              <strong>Backup Lengkap Hasil Asesmen Peserta (.CSV)</strong>,{' '}
               <strong>CSV Dimensi/Pertanyaan</strong>, atau{' '}
-              <strong>Full System Snapshot (.JSON)</strong>. Sistem akan menampilkan pratinjau
-              perubahan terlebih dahulu dan menyimpannya ke <em>Working Draft</em> tanpa merusak
-              histori hasil peserta lama.
+              <strong>Full System Snapshot (.JSON)</strong>. UUID dimensi & pertanyaan akan
+              dipetakan otomatis sehingga aman dipulihkan ke database Supabase yang berbeda.
             </p>
           </div>
 
@@ -1559,7 +1817,7 @@ export default function DataManagement() {
               </svg>
             </span>
             <strong>Pilih file backup (.CSV atau .JSON)</strong>
-            <span>Klik untuk memilih file dari komputer Anda</span>
+            <span>Mendukung restore ke database baru atau berbeda (auto-remap UUID)</span>
           </label>
 
           {restorePreview && (
@@ -1569,9 +1827,16 @@ export default function DataManagement() {
                   <span className="dm-pill-tag">{restorePreview.format}</span>
                   <h3>Pratinjau Pemulihan: {restorePreview.filename}</h3>
                   <p className="rs-sub">
-                    Terdeteksi {restorePreview.dimensions.length} dimensi dan{' '}
-                    {restorePreview.questions.length} pertanyaan · Total bobot aktif:{' '}
-                    <strong>{fmt(restorePreview.activeWeight)}%</strong>
+                    Terdeteksi <strong>{restorePreview.dimensions.length}</strong> dimensi ·{' '}
+                    <strong>{restorePreview.questions.length}</strong> pertanyaan ·{' '}
+                    <strong>{restorePreview.versions.length}</strong> versi ·{' '}
+                    <strong>{restorePreview.participantResults.length}</strong> hasil peserta
+                    {restorePreview.dimensions.length > 0 && (
+                      <>
+                        {' '}
+                        · Total bobot aktif: <strong>{fmt(restorePreview.activeWeight)}%</strong>
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="dim-top-actions">
@@ -1591,53 +1856,109 @@ export default function DataManagement() {
                     disabled={!restorePreview.weightValid || Boolean(busyLabel)}
                     onClick={applyRestoreToWorkingDraft}
                   >
-                    Pulihkan ke Working Draft
+                    Pulihkan Backup ke Database
                   </button>
                 </div>
               </div>
 
               {!restorePreview.weightValid && (
-                <p className="alert">
+                <p className="alert" style={{ margin: '12px 20px' }}>
                   Total bobot dimensi aktif pada file ini adalah{' '}
                   {fmt(restorePreview.activeWeight)}% (wajib tepat 100% sebelum dapat dipulihkan).
                 </p>
               )}
 
-              <div className="rs-table-wrap">
-                <table className="rs-table">
-                  <thead>
-                    <tr>
-                      <th>Dimensi pada File Backup</th>
-                      <th>Label Radar</th>
-                      <th className="rs-num">Bobot Baru</th>
-                      <th className="rs-num">Bobot Saat Ini</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {restorePreview.dimensions.map((d) => {
-                      const current = dimMap[d.id]
-                      return (
-                        <tr key={d.id}>
+              {restorePreview.dimensions.length > 0 && (
+                <div className="rs-table-wrap">
+                  <table className="rs-table">
+                    <thead>
+                      <tr>
+                        <th>Dimensi pada File Backup</th>
+                        <th>Label Radar</th>
+                        <th className="rs-num">Bobot Baru</th>
+                        <th className="rs-num">Bobot Saat Ini</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {restorePreview.dimensions.map((d, idx) => {
+                        const current =
+                          dimMap[d.id] ||
+                          dimensions.find(
+                            (ex) =>
+                              ex.name.trim().toLowerCase() ===
+                              String(d.name || '').trim().toLowerCase()
+                          )
+                        return (
+                          <tr key={d.id || idx}>
+                            <td>
+                              <strong>{d.name}</strong>
+                            </td>
+                            <td>{d.short_name || '—'}</td>
+                            <td className="rs-num">
+                              <strong>{fmt(d.weight)}%</strong>
+                            </td>
+                            <td className="rs-num">
+                              {current ? `${fmt(current.weight)}%` : 'Baru'}
+                            </td>
+                            <td>
+                              <span
+                                className={'rs-cat ' + (d.is_active ? 'rs-cat-strong' : 'rs-cat-low')}
+                              >
+                                {d.is_active ? 'Aktif' : 'Nonaktif'}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {restorePreview.participantResults.length > 0 && (
+                <div className="rs-table-wrap" style={{ borderTop: '1px solid var(--mist)' }}>
+                  <table className="rs-table">
+                    <thead>
+                      <tr>
+                        <th>Pratinjau Hasil Peserta ({restorePreview.participantResults.length})</th>
+                        <th>Waktu Asesmen</th>
+                        <th className="rs-num">Index</th>
+                        <th>Kategori</th>
+                        <th className="rs-num">Jawaban</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {restorePreview.participantResults.slice(0, 10).map((r, idx) => (
+                        <tr key={`${r.participant_name}_${idx}`}>
                           <td>
-                            <strong>{d.name}</strong>
+                            <strong>{r.participant_name}</strong>
+                            {r.participant_email && (
+                              <span className="sub">{r.participant_email}</span>
+                            )}
                           </td>
-                          <td>{d.short_name || '—'}</td>
+                          <td>{r.completed_at ? dtfmt(r.completed_at) : '—'}</td>
                           <td className="rs-num">
-                            <strong>{fmt(d.weight)}%</strong>
+                            <strong>{fmt(r.overall_score)}</strong>
                           </td>
-                          <td className="rs-num">{current ? `${fmt(current.weight)}%` : '—'}</td>
                           <td>
-                            <span className={'rs-cat ' + (d.is_active ? 'rs-cat-strong' : 'rs-cat-low')}>
-                              {d.is_active ? 'Aktif' : 'Nonaktif'}
-                            </span>
+                            <span className="rs-cat rs-cat-mid">{r.category}</span>
+                          </td>
+                          <td className="rs-num">{(r.responses ?? []).length}</td>
+                        </tr>
+                      ))}
+                      {restorePreview.participantResults.length > 10 && (
+                        <tr>
+                          <td colSpan="5" className="rs-empty" style={{ padding: '14px 20px' }}>
+                            + {restorePreview.participantResults.length - 10} hasil peserta lainnya
+                            siap dipulihkan…
                           </td>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </section>
