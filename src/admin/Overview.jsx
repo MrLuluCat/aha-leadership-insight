@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchOverview } from '../services/admin'
 import { fmt } from '../lib/format'
 import { CATS } from '../scoring'
+import CustomSelect from './CustomSelect'
 import Icon from './icons'
 import TrendChart from './TrendChart'
 
@@ -137,17 +138,16 @@ export function OverviewView({ data }) {
               <Icon name="trend" size={19} />
               <h2>Tren peserta</h2>
             </div>
-            <label className="range-pill">
-              <select
-                value={range}
-                onChange={(event) => setRange(Number(event.target.value))}
-                aria-label="Rentang waktu tren peserta"
-              >
-                <option value={12}>12 bulan terakhir</option>
-                <option value={6}>6 bulan terakhir</option>
-              </select>
-              <Icon name="chevron" size={14} />
-            </label>
+            <CustomSelect
+              className="cs-compact"
+              ariaLabel="Rentang waktu tren peserta"
+              value={range}
+              onChange={(val) => setRange(Number(val))}
+              options={[
+                { value: 12, label: '12 bulan terakhir' },
+                { value: 6, label: '6 bulan terakhir' },
+              ]}
+            />
           </div>
           <p className="panel-sub">Jumlah asesmen selesai per bulan ({range} bulan terakhir).</p>
           {trend.length ? (

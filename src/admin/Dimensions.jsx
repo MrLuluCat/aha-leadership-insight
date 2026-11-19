@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fmt } from '../lib/format'
+import CustomSelect from './CustomSelect'
 import {
   fetchDimensions,
   fetchQuestions,
@@ -156,6 +157,19 @@ function DimensionIcon({ name }) {
 }
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+
+function HintTip({ text, label = 'Info bantuan' }) {
+  return (
+    <span className="dim-hint-wrap">
+      <button type="button" className="dim-hint-trigger" aria-label={label}>
+        ?
+      </button>
+      <span className="dim-hint-bubble" role="tooltip">
+        {text}
+      </span>
+    </span>
+  )
+}
 
 export default function Dimensions() {
   const [dimensions, setDimensions] = useState([])
@@ -406,49 +420,119 @@ export default function Dimensions() {
 
   if (loading) return <p className="meta">Memuat dimensi dan bobot…</p>
 
+  const radius = 18
+  const circumference = 2 * Math.PI * radius
+  const clampedWeight = Math.min(100, Math.max(0, totalWeight))
+  const strokeDashoffset = circumference - (clampedWeight / 100) * circumference
+
   return (
     <>
-      <header className="ahead">
+      <header className="dim-hero-head">
         <div>
-          <h1>Dimensi &amp; bobot</h1>
+          <div className="dim-title-row">
+            <h1>Dimensi &amp; Bobot</h1>
+            <div className="dim-help-wrap">
+              <button
+                type="button"
+                className="dim-help-btn"
+                aria-label="Penjelasan dan alur kerja Dimensi & Bobot"
+              >
+                ?
+              </button>
+              <div className="dim-help-popover" role="tooltip">
+                <div className="dim-help-item">
+                  <strong>1. Atur Dimensi &amp; Total Bobot 100%</strong>
+                  <p>
+                    Pilih tab dimensi untuk mengubah nama, label radar, bobot (%), dan narasi.
+                    Total bobot seluruh dimensi aktif wajib tepat <strong>100,0%</strong>.
+                  </p>
+                </div>
+                <div className="dim-help-item">
+                  <strong>2. Bobot Relatif Pertanyaan</strong>
+                  <p>
+                    Di tabel bawah, atur bobot tiap pertanyaan di dalam dimensinya serta status
+                    <em> Reverse scoring</em> atau aktif/nonaktif.
+                  </p>
+                </div>
+                <div className="dim-help-item">
+                  <strong>3. Simpan Draf vs Publikasikan</strong>
+                  <p>
+                    <strong>Simpan perubahan / Simpan draf</strong> menyimpan ke <em>working draft</em>.
+                    Klik <strong>Publikasikan</strong> untuk mengaktifkan versi baru bagi peserta
+                    berikutnya tanpa mengubah histori hasil peserta lama.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p className="rs-sub">
+            Atur dimensi penilaian dan bobot masing-masing dimensi sesuai kebutuhan asesmen.
+            {dirty ? ' (Ada perubahan belum disimpan)' : ''}
+          </p>
         </div>
-        <div className="actions">
-          <button className="btn" onClick={handleSave} disabled={busy}>
-            {busy ? 'Menyimpan…' : 'Simpan perubahan'}
-          </button>
-          <button className="link" onClick={handleSaveDraft} disabled={busy}>
-            Simpan draft
-          </button>
-          <button className="link" onClick={handlePublish} disabled={busy}>
-            Publikasikan
-          </button>
+
+        <div className="dim-head-right">
+          <div className={'dim-donut-card ' + (weightValid ? 'valid' : 'invalid')}>
+            <svg className="dim-donut-svg" width="44" height="44" viewBox="0 0 48 48" aria-hidden="true">
+              <circle cx="24" cy="24" r={radius} className="dim-donut-track" />
+              <circle
+                cx="24"
+                cy="24"
+                r={radius}
+                className="dim-donut-fill"
+                strokeDasharray={circumference}
+                strokeDashoffset={strokeDashoffset}
+              />
+            </svg>
+            <div className="dim-donut-info">
+              <b>{fmt(totalWeight)}%</b>
+              <span>
+                {weightValid
+                  ? 'Total Bobot (Pas 100%)'
+                  : totalWeight < 100
+                    ? `Kurang ${fmt(100 - totalWeight)}% dari 100%`
+                    : `Lebih ${fmt(totalWeight - 100)}% dari 100%`}
+              </span>
+            </div>
+            <span className={'badge ' + (weightValid ? 'ok' : 'warn')}>
+              {weightValid ? '✓ Valid' : 'Belum 100%'}
+            </span>
+          </div>
+
+          <div className="dim-top-actions">
+            <button
+              type="button"
+              className="dim-btn-outline"
+              onClick={handleSaveDraft}
+              disabled={busy || !dirty}
+              title={!dirty ? 'Belum ada perubahan untuk disimpan ke draf' : 'Simpan ke working draft tanpa mempublikasikan'}
+            >
+              Simpan draf
+            </button>
+            <button
+              type="button"
+              className="dim-btn-primary"
+              onClick={handleSave}
+              disabled={busy || !dirty}
+              title={!dirty ? 'Ubah data dimensi atau bobot terlebih dahulu' : 'Validasi dan simpan konfigurasi'}
+            >
+              {busy ? 'Menyimpan…' : 'Simpan perubahan'}
+            </button>
+            <button
+              type="button"
+              className="dim-btn-publish"
+              onClick={handlePublish}
+              disabled={busy}
+              title="Kunci working draft menjadi versi asesmen aktif baru"
+            >
+              Publikasikan
+            </button>
+          </div>
         </div>
       </header>
 
-      <p className="meta">
-        {dirty ? 'Ada perubahan yang belum disimpan. ' : ''}
-        {activeDimensions.length} dimensi aktif · {activeQuestionCount} pertanyaan aktif
-      </p>
-
       {error && <p className="alert" role="alert">{error}</p>}
       {notice && <p className="alert success" role="status">{notice}</p>}
-
-      {/* Weight Summary Banner */}
-      <section className={'card weight-summary ' + (weightValid ? 'valid' : 'invalid')}>
-        <div>
-          <h2>Total bobot dimensi</h2>
-          <p className="meta">
-            Total bobot seluruh dimensi aktif harus tepat 100%. Bobot pertanyaan dinormalisasi di
-            dalam masing-masing dimensi.
-          </p>
-        </div>
-        <div className="weight-total">
-          <b>{fmt(totalWeight)}%</b>
-          <span className={'badge ' + (weightValid ? 'ok' : 'warn')}>
-            {weightValid ? 'Valid' : 'Belum 100%'}
-          </span>
-        </div>
-      </section>
 
       {/* Tabbed Dimension Editor Section */}
       {dimensions.length > 0 && currentDimension && (
@@ -484,8 +568,15 @@ export default function Dimensions() {
             id={`panel-${currentDimension.id}`}
             aria-labelledby={`tab-${currentDimension.id}`}
           >
-            {/* Top Right Status Badge */}
+            {/* Top Header inside Card */}
             <div className="dim-card-top">
+              <div className="dim-card-heading">
+                <span className="dim-card-accent" aria-hidden="true" />
+                <div>
+                  <h2>{currentDimension.name}</h2>
+                  <p>{currentDimension.description || 'Atur detail dan narasi untuk dimensi ini.'}</p>
+                </div>
+              </div>
               <span
                 className={`dim-status-pill ${currentDimension.is_active ? 'active' : 'inactive'}`}
               >
@@ -511,7 +602,10 @@ export default function Dimensions() {
               </label>
 
               <label className="dim-field">
-                <span className="dim-field-label">Label singkat</span>
+                <span className="dim-field-label">
+                  Label singkat
+                  <HintTip text="Nama ringkas (maks. 24 karakter) yang ditampilkan pada titik diagram radar laporan hasil peserta." />
+                </span>
                 <input
                   className="dim-input"
                   value={currentDimension.short_name}
@@ -523,7 +617,10 @@ export default function Dimensions() {
               </label>
 
               <label className="dim-field">
-                <span className="dim-field-label">Bobot dimensi (%)</span>
+                <span className="dim-field-label">
+                  Bobot dimensi (%)
+                  <HintTip text="Persentase kontribusi dimensi ini ke skor akhir (Overall Leadership Index). Total seluruh dimensi aktif wajib tepat 100%." />
+                </span>
                 <input
                   className="dim-input"
                   type="number"
@@ -537,7 +634,10 @@ export default function Dimensions() {
               </label>
 
               <label className="dim-field">
-                <span className="dim-field-label">Urutan</span>
+                <span className="dim-field-label">
+                  Urutan
+                  <HintTip text="Urutan tampil dimensi pada tab, tabel laporan, dan diagram radar." />
+                </span>
                 <input
                   className="dim-input"
                   type="number"
@@ -552,41 +652,62 @@ export default function Dimensions() {
 
             {/* Row 2: Deskripsi */}
             <label className="dim-field">
-              <span className="dim-field-label">Deskripsi</span>
-              <textarea
-                className="dim-textarea"
-                rows="2"
-                value={currentDimension.description}
-                onChange={(event) =>
-                  patchDimension(currentDimension.id, 'description', event.target.value)
-                }
-              />
+              <span className="dim-field-label">
+                Deskripsi
+                <HintTip text="Penjelasan singkat mengenai apa yang diukur oleh dimensi ini (tampil di halaman depan & laporan)." />
+              </span>
+              <div className="qm-textarea-wrap">
+                <textarea
+                  className="dim-textarea"
+                  rows="2"
+                  maxLength={500}
+                  value={currentDimension.description}
+                  onChange={(event) =>
+                    patchDimension(currentDimension.id, 'description', event.target.value)
+                  }
+                />
+                <span className="qm-counter">{(currentDimension.description || '').length} / 500</span>
+              </div>
             </label>
 
             {/* Row 3: Narasi kekuatan */}
             <label className="dim-field">
-              <span className="dim-field-label">Narasi kekuatan</span>
-              <textarea
-                className="dim-textarea"
-                rows="2"
-                value={currentDimension.strength_guidance}
-                onChange={(event) =>
-                  patchDimension(currentDimension.id, 'strength_guidance', event.target.value)
-                }
-              />
+              <span className="dim-field-label">
+                Narasi kekuatan
+                <HintTip text="Muncul otomatis di kartu 'Top 3 Strengths' pada laporan peserta apabila dimensi ini termasuk 3 skor tertinggi." />
+              </span>
+              <div className="qm-textarea-wrap">
+                <textarea
+                  className="dim-textarea"
+                  rows="2"
+                  maxLength={500}
+                  value={currentDimension.strength_guidance}
+                  onChange={(event) =>
+                    patchDimension(currentDimension.id, 'strength_guidance', event.target.value)
+                  }
+                />
+                <span className="qm-counter">{(currentDimension.strength_guidance || '').length} / 500</span>
+              </div>
             </label>
 
             {/* Row 4: Narasi pengembangan */}
             <label className="dim-field">
-              <span className="dim-field-label">Narasi pengembangan</span>
-              <textarea
-                className="dim-textarea"
-                rows="2"
-                value={currentDimension.development_guidance}
-                onChange={(event) =>
-                  patchDimension(currentDimension.id, 'development_guidance', event.target.value)
-                }
-              />
+              <span className="dim-field-label">
+                Narasi pengembangan
+                <HintTip text="Muncul otomatis di kartu 'Development Priorities' & '21-Day Action Plan' apabila dimensi ini termasuk 3 skor terendah peserta." />
+              </span>
+              <div className="qm-textarea-wrap">
+                <textarea
+                  className="dim-textarea"
+                  rows="2"
+                  maxLength={500}
+                  value={currentDimension.development_guidance}
+                  onChange={(event) =>
+                    patchDimension(currentDimension.id, 'development_guidance', event.target.value)
+                  }
+                />
+                <span className="qm-counter">{(currentDimension.development_guidance || '').length} / 500</span>
+              </div>
             </label>
 
             {/* Row 5: Card bottom controls */}
@@ -614,67 +735,15 @@ export default function Dimensions() {
             )}
           </section>
 
-          {/* Information Callout Banner below card */}
-          <section className="dim-info-card" aria-label="Informasi pengaturan dimensi">
-            <div className="dim-info-icon-badge" aria-hidden="true">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="12" y1="16" x2="12" y2="12" />
-                <line x1="12" y1="8" x2="12.01" y2="8" />
-              </svg>
-            </div>
-            <div className="dim-info-content">
-              <div className="dim-info-title">Informasi</div>
-              <div className="dim-info-text">
-                Pengaturan ini akan digunakan untuk seluruh asesmen pada kategori yang dipilih.
-              </div>
-            </div>
-            {/* Subtle golden corner wave illustration */}
-            <svg
-              className="dim-info-corner-art"
-              viewBox="0 0 160 80"
-              fill="none"
-              preserveAspectRatio="none"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <path
-                d="M160 0 C 128 16, 75 42, 45 80 L 160 80 Z"
-                fill="url(#dimGoldGradient)"
-              />
-              <defs>
-                <linearGradient
-                  id="dimGoldGradient"
-                  x1="160"
-                  y1="0"
-                  x2="60"
-                  y2="80"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop stopColor="#fef3c7" stopOpacity="0.9" />
-                  <stop offset="1" stopColor="#fde68a" stopOpacity="0.45" />
-                </linearGradient>
-              </defs>
-            </svg>
-          </section>
         </div>
       )}
 
       {/* Questions DataTables Section */}
-      <section className="dt-questions-card" aria-labelledby="dt-questions-heading">
-        {/* Card Header with UI/UX Clarity */}
-        <div className="dt-card-header">
-          <div className="dt-card-title-group">
+      <section className="rs-card" aria-labelledby="dt-questions-heading">
+        <div className="dim-dt-head">
+          <div>
             <h2 id="dt-questions-heading">Bobot pertanyaan</h2>
-            <p>
+            <p className="rs-sub">
               Bobot bersifat relatif di dalam dimensi. Pertanyaan dengan bobot lebih besar memberi
               kontribusi lebih tinggi pada skor dimensi.
             </p>
@@ -686,191 +755,122 @@ export default function Dimensions() {
           </div>
         </div>
 
-        {/* DataTables Controls Header: Entries per page & Filters */}
-        <div className="dt-controls-top">
-          <div className="dt-length">
-            <label>
-              <span>Tampilkan</span>
-              <select
-                value={qPageSize}
-                onChange={(e) => {
-                  setQPageSize(Number(e.target.value))
-                  setQPage(0)
-                }}
-                aria-label="Jumlah pertanyaan per halaman"
-              >
-                {PAGE_SIZE_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-              <span>entri</span>
-            </label>
-          </div>
-
-          <div className="dt-filters">
-            {/* Quick search input */}
-            <div className="dt-search-box">
-              <input
-                type="search"
-                aria-label="Cari pertanyaan"
-                placeholder="Cari teks pertanyaan / no urut…"
-                value={qSearch}
-                onChange={(e) => {
-                  setQSearch(e.target.value)
-                  setQPage(0)
-                }}
-              />
-            </div>
-
-            {/* Filter by Dimension */}
-            <select
-              aria-label="Filter berdasarkan dimensi"
-              value={qDimFilter}
+        <div className="rs-toolbar">
+          <div className="rs-search">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
+            <input
+              type="search"
+              aria-label="Cari pertanyaan"
+              placeholder="Cari teks pertanyaan / no urut…"
+              value={qSearch}
               onChange={(e) => {
-                setQDimFilter(e.target.value)
+                setQSearch(e.target.value)
                 setQPage(0)
               }}
-            >
-              <option value="all">Semua Dimensi ({questions.length})</option>
-              {dimensions.map((dim) => {
+            />
+          </div>
+
+          <CustomSelect
+            ariaLabel="Filter berdasarkan dimensi"
+            value={qDimFilter}
+            onChange={(val) => {
+              setQDimFilter(val)
+              setQPage(0)
+            }}
+            options={[
+              { value: 'all', label: `Semua Dimensi (${questions.length})` },
+              ...dimensions.map((dim) => {
                 const count = questions.filter((q) => q.dimension_id === dim.id).length
-                return (
-                  <option key={dim.id} value={dim.id}>
-                    {dim.name} ({count})
-                  </option>
-                )
-              })}
-            </select>
+                return { value: dim.id, label: `${dim.name} (${count})` }
+              }),
+            ]}
+          />
 
-            {/* Filter by Status */}
-            <select
-              aria-label="Filter status aktif"
-              value={qStatusFilter}
-              onChange={(e) => {
-                setQStatusFilter(e.target.value)
-                setQPage(0)
-              }}
-            >
-              <option value="all">Semua Status</option>
-              <option value="active">Aktif Saja</option>
-              <option value="inactive">Nonaktif Saja</option>
-            </select>
+          <CustomSelect
+            ariaLabel="Filter status aktif"
+            value={qStatusFilter}
+            onChange={(val) => {
+              setQStatusFilter(val)
+              setQPage(0)
+            }}
+            options={[
+              { value: 'all', label: 'Semua Status' },
+              { value: 'active', label: 'Aktif Saja' },
+              { value: 'inactive', label: 'Nonaktif Saja' },
+            ]}
+          />
 
-            {/* Filter by Reverse Scoring */}
-            <select
-              aria-label="Filter reverse scoring"
-              value={qReverseFilter}
-              onChange={(e) => {
-                setQReverseFilter(e.target.value)
-                setQPage(0)
-              }}
-            >
-              <option value="all">Semua Skala</option>
-              <option value="reverse">Reverse Scoring Saja</option>
-              <option value="normal">Normal Scoring Saja</option>
-            </select>
+          <CustomSelect
+            ariaLabel="Filter reverse scoring"
+            value={qReverseFilter}
+            onChange={(val) => {
+              setQReverseFilter(val)
+              setQPage(0)
+            }}
+            options={[
+              { value: 'all', label: 'Semua Skala' },
+              { value: 'reverse', label: 'Reverse Scoring Saja' },
+              { value: 'normal', label: 'Normal Scoring Saja' },
+            ]}
+          />
 
-            {/* Reset button if filter is active */}
-            {isFiltered && (
-              <button
-                type="button"
-                className="dt-clear-btn"
-                onClick={handleResetFilters}
-                title="Bersihkan seluruh filter dan pencarian"
-              >
-                Reset filter
-              </button>
-            )}
-          </div>
+          {isFiltered && (
+            <button type="button" className="rs-reset" onClick={handleResetFilters}>
+              Reset
+            </button>
+          )}
         </div>
 
-        {/* DataTables Table Container */}
-        <div className="tablewrap dt-tablewrap">
-          <table className="data dt-table">
+        <div className="rs-table-wrap">
+          <table className="rs-table">
             <thead>
               <tr>
-                <th
-                  className="dt-th-sortable"
-                  style={{ width: '88px', textAlign: 'center' }}
-                  onClick={() => handleSort('sort_order')}
-                >
-                  <div className="dt-th-content" style={{ justifyContent: 'center' }}>
+                <th>
+                  <button type="button" className="rs-sort" onClick={() => handleSort('sort_order')}>
                     <span>Urutan</span>
                     {renderSortIndicator('sort_order')}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  className="dt-th-sortable"
-                  onClick={() => handleSort('question_text')}
-                >
-                  <div className="dt-th-content">
+                <th>
+                  <button type="button" className="rs-sort" onClick={() => handleSort('question_text')}>
                     <span>Pertanyaan</span>
                     {renderSortIndicator('question_text')}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  className="dt-th-sortable"
-                  style={{ width: '190px' }}
-                  onClick={() => handleSort('dimension')}
-                >
-                  <div className="dt-th-content">
+                <th>
+                  <button type="button" className="rs-sort" onClick={() => handleSort('dimension')}>
                     <span>Dimensi</span>
                     {renderSortIndicator('dimension')}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  className="dt-th-sortable"
-                  style={{ width: '110px', textAlign: 'center' }}
-                  onClick={() => handleSort('weight')}
-                >
-                  <div className="dt-th-content" style={{ justifyContent: 'center' }}>
+                <th className="rs-center">
+                  <button type="button" className="rs-sort" onClick={() => handleSort('weight')}>
                     <span>Bobot</span>
                     {renderSortIndicator('weight')}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  className="dt-th-sortable"
-                  style={{ width: '100px', textAlign: 'center' }}
-                  onClick={() => handleSort('reverse_scoring')}
-                >
-                  <div className="dt-th-content" style={{ justifyContent: 'center' }}>
+                <th className="rs-center">
+                  <button type="button" className="rs-sort" onClick={() => handleSort('reverse_scoring')}>
                     <span>Reverse</span>
                     {renderSortIndicator('reverse_scoring')}
-                  </div>
+                  </button>
                 </th>
-                <th
-                  className="dt-th-sortable"
-                  style={{ width: '90px', textAlign: 'center' }}
-                  onClick={() => handleSort('is_active')}
-                >
-                  <div className="dt-th-content" style={{ justifyContent: 'center' }}>
+                <th className="rs-center">
+                  <button type="button" className="rs-sort" onClick={() => handleSort('is_active')}>
                     <span>Aktif</span>
                     {renderSortIndicator('is_active')}
-                  </div>
+                  </button>
                 </th>
               </tr>
             </thead>
             <tbody>
               {pagedQuestions.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="dt-empty">
-                    <div style={{ display: 'grid', gap: '8px', placeItems: 'center', padding: '20px 0' }}>
-                      <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.94rem' }}>
-                        Tidak ada pertanyaan yang sesuai dengan filter atau kriteria pencarian.
-                      </p>
-                      {isFiltered && (
-                        <button
-                          type="button"
-                          className="dt-clear-btn"
-                          onClick={handleResetFilters}
-                          style={{ marginTop: '4px' }}
-                        >
-                          Reset semua filter
-                        </button>
-                      )}
-                    </div>
+                  <td colSpan="6" className="rs-empty">
+                    Tidak ada pertanyaan yang sesuai dengan filter atau kriteria pencarian.
                   </td>
                 </tr>
               ) : (
@@ -879,28 +879,17 @@ export default function Dimensions() {
                   const dimName = dim?.name ?? '—'
                   return (
                     <tr key={question.id} className={question.is_active ? '' : 'muted'}>
-                      {/* Urutan */}
-                      <td style={{ textAlign: 'center' }} data-label="Urutan">
-                        <span className="dt-order-pill">{question.sort_order}</span>
+                      <td data-label="Urutan">
+                        <span className="rs-ver">#{question.sort_order}</span>
                       </td>
-
-                      {/* Pertanyaan */}
-                      <td data-label="Pertanyaan">
-                        <div style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '0.94rem', lineHeight: 1.45 }}>
-                          {question.question_text}
-                        </div>
-                      </td>
-
-                      {/* Dimensi */}
+                      <td data-label="Pertanyaan">{question.question_text}</td>
                       <td data-label="Dimensi">
                         <span className="dt-dim-badge">
                           <DimensionIcon name={dimName} />
                           <span>{dimName}</span>
                         </span>
                       </td>
-
-                      {/* Bobot Input */}
-                      <td style={{ textAlign: 'center' }} data-label="Bobot">
+                      <td className="rs-center" data-label="Bobot">
                         <input
                           className="dt-weight-input"
                           type="number"
@@ -913,9 +902,7 @@ export default function Dimensions() {
                           }
                         />
                       </td>
-
-                      {/* Reverse Scoring Checkbox */}
-                      <td style={{ textAlign: 'center' }} data-label="Reverse">
+                      <td className="rs-center" data-label="Reverse">
                         <div className="dt-checkbox-cell">
                           <input
                             type="checkbox"
@@ -928,9 +915,7 @@ export default function Dimensions() {
                           />
                         </div>
                       </td>
-
-                      {/* Status Aktif Checkbox */}
-                      <td style={{ textAlign: 'center' }} data-label="Aktif">
+                      <td className="rs-center" data-label="Aktif">
                         <div className="dt-checkbox-cell">
                           <input
                             type="checkbox"
@@ -950,83 +935,68 @@ export default function Dimensions() {
           </table>
         </div>
 
-        {/* DataTables Bottom Controls: Entry Info & Pagination */}
-        <div className="dt-controls-bottom">
-          <div className="dt-info">
-            Menampilkan <strong>{fromRecord}</strong> sampai <strong>{toRecord}</strong> dari{' '}
-            <strong>{totalFiltered}</strong> pertanyaan
-            {isFiltered && ` (difilter dari ${questions.length} total pertanyaan)`}
+        <div className="rs-footer">
+          <div className="rs-size">
+            <span>Tampilkan</span>
+            <CustomSelect
+              className="cs-compact"
+              ariaLabel="Jumlah pertanyaan per halaman"
+              value={qPageSize}
+              onChange={(val) => {
+                setQPageSize(Number(val))
+                setQPage(0)
+              }}
+              options={PAGE_SIZE_OPTIONS.map((opt) => ({ value: opt, label: String(opt) }))}
+            />
+            <span>entri</span>
           </div>
 
-          <div className="dt-pagination" role="navigation" aria-label="Navigasi halaman pertanyaan">
+          <span className="rs-info">
+            {fromRecord}–{toRecord} dari {totalFiltered}
+          </span>
+
+          <nav className="rs-pager" aria-label="Paginasi bobot pertanyaan">
             <button
               type="button"
-              className="dt-page-btn"
+              className="rs-pg"
+              disabled={safePage === 0}
+              onClick={() => setQPage(0)}
+              aria-label="Halaman pertama"
+            >
+              «
+            </button>
+            <button
+              type="button"
+              className="rs-pg"
               disabled={safePage === 0}
               onClick={() => setQPage((p) => Math.max(0, p - 1))}
               aria-label="Halaman sebelumnya"
             >
-              « Sebelumnya
+              ‹
             </button>
-
-            {Array.from({ length: totalPages }).map((_, idx) => {
-              // Only display nearby pages when totalPages is large
-              if (
-                totalPages > 7 &&
-                idx !== 0 &&
-                idx !== totalPages - 1 &&
-                Math.abs(idx - safePage) > 1
-              ) {
-                if (idx === 1 || idx === totalPages - 2) {
-                  return (
-                    <span key={idx} className="dt-page-indicator">
-                      …
-                    </span>
-                  )
-                }
-                return null
-              }
-
-              const isCurrent = idx === safePage
-              return (
-                <button
-                  key={idx}
-                  type="button"
-                  className={`dt-page-btn ${isCurrent ? 'active' : ''}`}
-                  style={
-                    isCurrent
-                      ? { background: 'var(--ink)', color: 'var(--white)', borderColor: 'var(--ink)', fontWeight: 700 }
-                      : {}
-                  }
-                  aria-current={isCurrent ? 'page' : undefined}
-                  onClick={() => setQPage(idx)}
-                >
-                  {idx + 1}
-                </button>
-              )
-            })}
-
+            <span className="rs-pg-now">
+              {safePage + 1} / {totalPages}
+            </span>
             <button
               type="button"
-              className="dt-page-btn"
+              className="rs-pg"
               disabled={safePage >= totalPages - 1}
               onClick={() => setQPage((p) => Math.min(totalPages - 1, p + 1))}
               aria-label="Halaman berikutnya"
             >
-              Selanjutnya »
+              ›
             </button>
-          </div>
+            <button
+              type="button"
+              className="rs-pg"
+              disabled={safePage >= totalPages - 1}
+              onClick={() => setQPage(totalPages - 1)}
+              aria-label="Halaman terakhir"
+            >
+              »
+            </button>
+          </nav>
         </div>
-      </section>
-
-      {/* Alur Publikasi Information */}
-      <section className="card" style={{ marginTop: '2rem' }}>
-        <h2>Alur publikasi</h2>
-        <p className="meta">
-          Perubahan disimpan ke working draft. Publikasi membuat snapshot versi baru yang tidak dapat
-          diedit, sehingga hasil asesmen lama tetap konsisten. Setelah publikasi, draft berikutnya
-          dibuat otomatis.
-        </p>
       </section>
     </>
   )

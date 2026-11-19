@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import Radar from './Radar'
 import logo from './assets/aha-logo.jpg'
 import { buildReport } from './lib/report'
-import { fmt, dfmt } from './lib/format'
+import { exportParticipantReportExcel } from './lib/exportExcel'
+import { fmt, dtfmt } from './lib/format'
 
 function getShortLabel(d) {
   if (d.short_name) return d.short_name
@@ -16,7 +18,8 @@ function getShortLabel(d) {
   return d.name
 }
 
-export default function Report({ result, onRestart, compact = false }) {
+export default function Report({ result, onBack, onRestart, compact = false }) {
+  const [confirmRestart, setConfirmRestart] = useState(false)
   const report = buildReport(result)
   if (!report) return null
 
@@ -30,12 +33,21 @@ export default function Report({ result, onRestart, compact = false }) {
         <div className="rp-navbar-inner">
           <img className="rp-nav-logo" src={logo} alt="AHA Leadership Centre" />
           <div className="rp-nav-actions">
-            <a className="rp-back-btn" href="#/">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M19 12H5M12 5l-7 7 7 7"/>
-              </svg>
-              <span>Kembali<span className="rp-back-extra"> ke Dashboard</span></span>
-            </a>
+            {onBack ? (
+              <button type="button" className="rp-back-btn" onClick={onBack}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M19 12H5M12 5l-7 7 7 7"/>
+                </svg>
+                <span>Kembali<span className="rp-back-extra"> ke Dashboard</span></span>
+              </button>
+            ) : (
+              <a className="rp-back-btn" href="#/">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M19 12H5M12 5l-7 7 7 7"/>
+                </svg>
+                <span>Kembali<span className="rp-back-extra"> ke Dashboard</span></span>
+              </a>
+            )}
           </div>
         </div>
       </header>
@@ -49,7 +61,7 @@ export default function Report({ result, onRestart, compact = false }) {
           <p className="rp-label">Laporan asesmen</p>
           <h1 className="rp-name">{result.participant_name}</h1>
           <p className="rp-date">
-            Asesmen {dfmt(result.completed_at)} · Versi konfigurasi {result.version_number}
+            Asesmen {dtfmt(result.completed_at)} · Versi konfigurasi {result.version_number}
           </p>
         </div>
 
@@ -224,14 +236,26 @@ export default function Report({ result, onRestart, compact = false }) {
             </span>
           </p>
           <div className="rp-footer-actions no-print">
-            <button className="rp-print-btn" onClick={() => window.print()}>
+            <button type="button" className="rp-print-btn" onClick={() => window.print()}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
               </svg>
               Cetak / simpan PDF
             </button>
+            <button
+              type="button"
+              className="rp-excel-btn"
+              onClick={() => exportParticipantReportExcel(report)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M9 13l6 6M15 13l-6 6" />
+              </svg>
+              Ekspor Excel
+            </button>
             {onRestart && (
-              <button className="rp-restart-btn" onClick={onRestart}>
+              <button type="button" className="rp-restart-btn" onClick={() => setConfirmRestart(true)}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/>
                 </svg>
@@ -241,6 +265,68 @@ export default function Report({ result, onRestart, compact = false }) {
           </div>
         </footer>
       </div>
+
+      {confirmRestart && onRestart && (
+        <div
+          className="qm-backdrop no-print"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setConfirmRestart(false)
+          }}
+        >
+          <div className="qm-modal" role="dialog" aria-modal="true" aria-labelledby="rp-restart-title">
+            <div className="qm-head">
+              <div className="qm-head-left">
+                <span className="qm-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 .49-3.51" />
+                  </svg>
+                </span>
+                <div>
+                  <h2 id="rp-restart-title">Ulangi Asesmen?</h2>
+                  <p>Konfirmasi sebelum memulai sesi asesmen baru.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="qm-close"
+                onClick={() => setConfirmRestart(false)}
+                aria-label="Tutup"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="qm-body">
+              <p className="rp-confirm-text">
+                Anda sudah pernah melakukan asesmen sebagai{' '}
+                <strong>"{result.participant_name}"</strong>. Informasi nama dan email yang sudah
+                Anda masukkan akan dimuat ulang kembali pada asesmen baru.
+              </p>
+            </div>
+            <div className="qm-foot">
+              <button
+                type="button"
+                className="qm-btn-cancel"
+                onClick={() => setConfirmRestart(false)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="qm-btn-save"
+                onClick={() => {
+                  setConfirmRestart(false)
+                  onRestart()
+                }}
+              >
+                Ya, Ulangi Asesmen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </article>
   )
 }

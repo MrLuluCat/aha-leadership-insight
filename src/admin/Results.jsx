@@ -1,11 +1,23 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { CATS, SCALE } from '../scoring'
-import { fmt, dfmt } from '../lib/format'
+import { fmt, dfmt, tfmt, dtfmt } from '../lib/format'
+import { exportResultsListExcel } from '../lib/exportExcel'
 import { fetchResultDetail, fetchResultsPage } from '../services/admin'
-import Report from '../Report'
-import Icon from './icons'
+import CustomDatePicker from './CustomDatePicker'
+import CustomSelect from './CustomSelect'
+import PageLoader from '../components/PageLoader'
+
+const Report = lazy(() => import('../Report'))
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+
+const catTone = (name = '') => {
+  const n = name.toLowerCase()
+  if (n.includes('sangat kuat') || n === 'kuat') return 'strong'
+  if (n.includes('cukup')) return 'mid'
+  if (n.includes('tahap')) return 'dev'
+  return 'low'
+}
 
 export default function Results() {
   const [search, setSearch] = useState('')
@@ -67,6 +79,21 @@ export default function Results() {
     }
   }, [debounced, category, from, to, sort, dir, page, pageSize])
 
+  // Detail dialog: Esc to close + lock background scroll
+  useEffect(() => {
+    if (!selectedId) return undefined
+    const onKey = (event) => {
+      if (event.key === 'Escape') closeDetail()
+    }
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prev
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [selectedId])
+
   async function openDetail(row) {
     setSelectedId(row.result_id)
     setDetail(null)
@@ -96,32 +123,45 @@ export default function Results() {
     }
   }
 
+  function resetFilters() {
+    setSearch('')
+    setDebounced('')
+    setCategory('')
+    setFrom('')
+    setTo('')
+  }
+
+  async function fetchAllFilteredRows() {
+    const allRows = []
+    const chunk = 500
+    let offset = 0
+    let totalRows = Infinity
+
+    while (offset < totalRows) {
+      const chunkData = await fetchResultsPage({
+        search: debounced,
+        category,
+        from,
+        to,
+        sort,
+        dir,
+        limit: chunk,
+        offset,
+      })
+      const rowsChunk = chunkData.rows ?? []
+      allRows.push(...rowsChunk)
+      totalRows = Number(chunkData.total ?? 0)
+      offset += chunk
+      if (!rowsChunk.length) break
+    }
+    return allRows
+  }
+
   async function exportCsv() {
     setExporting(true)
     setError('')
     try {
-      const allRows = []
-      const chunk = 500
-      let offset = 0
-      let totalRows = Infinity
-
-      while (offset < totalRows) {
-        const chunkData = await fetchResultsPage({
-          search: debounced,
-          category,
-          from,
-          to,
-          sort,
-          dir,
-          limit: chunk,
-          offset,
-        })
-        const rowsChunk = chunkData.rows ?? []
-        allRows.push(...rowsChunk)
-        totalRows = Number(chunkData.total ?? 0)
-        offset += chunk
-        if (!rowsChunk.length) break
-      }
+      const allRows = await fetchAllFilteredRows()
 
       const head = [
         'Participant',
@@ -134,7 +174,7 @@ export default function Results() {
       const body = allRows.map((row) => [
         row.participant_name,
         row.participant_email ?? '',
-        dfmt(row.assessment_date),
+        dtfmt(row.assessment_date),
         fmt(row.overall_score),
         row.category,
         row.version_number,
@@ -157,272 +197,556 @@ export default function Results() {
     }
   }
 
+  async function exportExcel() {
+    setExporting(true)
+    setError('')
+    try {
+      const allRows = await fetchAllFilteredRows()
+      exportResultsListExcel(allRows)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const rows = data?.rows ?? []
   const total = Number(data?.total ?? 0)
   const pages = Math.max(1, Math.ceil(total / pageSize))
   const fromRecord = total === 0 ? 0 : page * pageSize + 1
   const toRecord = Math.min((page + 1) * pageSize, total)
+  const hasFilters = Boolean(search || category || from || to)
 
-  const renderSortIndicator = (key) => {
-    if (sort !== key) return <span className="dt-sort-icon neutral">↕</span>
-    return <span className="dt-sort-icon active">{dir === 'asc' ? '▲' : '▼'}</span>
-  }
+  const sortAria = (key) =>
+    sort === key ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'
+
+  const sortTh = (k, label, className = '') => (
+    <th className={className} aria-sort={sortAria(k)}>
+      <button type="button" className="rs-sort" onClick={() => sortBy(k)}>
+        <span>{label}</span>
+        <span className={'rs-sort-icon' + (sort === k ? ' on' : '')} aria-hidden="true">
+          {sort === k ? (dir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </button>
+    </th>
+  )
 
   return (
     <>
-      <header className="ahead">
+      <header className="rs-head">
         <div>
           <h1>Hasil peserta</h1>
+          <p className="rs-sub">
+            Pantau seluruh hasil asesmen kepemimpinan, buka detail per peserta, atau ekspor ke CSV.
+          </p>
         </div>
-        <p className="meta">{total} hasil asesmen</p>
+        <div className="rs-head-stat" aria-live="polite">
+          <b>{total}</b>
+          <span>hasil asesmen</span>
+        </div>
       </header>
 
-      {/* DataTables Controls Header */}
-      <div className="dt-controls-top">
-        <div className="dt-length">
-          <label>
-            <span>Tampilkan</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              aria-label="Jumlah entri per halaman"
-            >
-              {PAGE_SIZE_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-            <span>entri</span>
-          </label>
-        </div>
+      {error && <p className="alert">{error}</p>}
 
-        <div className="dt-filters">
-          <div className="dt-search-box">
+      <section className="rs-card" aria-label="Daftar hasil peserta">
+        {/* Toolbar */}
+        <div className="rs-toolbar">
+          <div className="rs-search">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <path d="M21 21l-4.35-4.35" />
+            </svg>
             <input
               type="search"
               aria-label="Cari nama atau email peserta"
-              placeholder="Cari peserta…"
+              placeholder="Cari nama atau email…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <select
-            aria-label="Filter kategori"
+
+          <CustomSelect
+            ariaLabel="Filter kategori"
             value={category}
-            onChange={(event) => setCategory(event.target.value)}
-          >
-            <option value="">Semua kategori</option>
-            {CATS.map((cat) => (
-              <option key={cat.name} value={cat.name}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
-          <div className="dt-date-range">
-            <input
-              type="date"
+            onChange={(val) => setCategory(val)}
+            options={[
+              { value: '', label: 'Semua kategori' },
+              ...CATS.map((cat) => ({ value: cat.name, label: cat.name })),
+            ]}
+          />
+
+          <div className="rs-dates">
+            <CustomDatePicker
               value={from}
-              onChange={(event) => setFrom(event.target.value)}
-              aria-label="Tanggal mulai"
-              title="Tanggal mulai"
+              onChange={(val) => setFrom(val)}
+              ariaLabel="Tanggal mulai"
+              placeholder="Dari tanggal"
             />
-            <span className="dt-date-sep">s/d</span>
-            <input
-              type="date"
+            <span aria-hidden="true">–</span>
+            <CustomDatePicker
               value={to}
-              onChange={(event) => setTo(event.target.value)}
-              aria-label="Tanggal akhir"
-              title="Tanggal akhir"
+              onChange={(val) => setTo(val)}
+              ariaLabel="Tanggal akhir"
+              placeholder="Sampai tanggal"
+              alignRight
             />
           </div>
-          <button className="btn sm dt-export-btn" onClick={exportCsv} disabled={exporting || !total}>
-            {exporting ? 'Menyiapkan…' : 'Ekspor CSV'}
-          </button>
+
+          {hasFilters && (
+            <button type="button" className="rs-reset" onClick={resetFilters}>
+              Reset
+            </button>
+          )}
+
+          <div className="rs-export-group">
+            <button
+              type="button"
+              className="rs-export rs-export-excel"
+              onClick={exportExcel}
+              disabled={exporting || !total}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M9 13l6 6M15 13l-6 6" />
+              </svg>
+              {exporting ? 'Menyiapkan…' : 'Ekspor Excel'}
+            </button>
+            <button
+              type="button"
+              className="rs-export"
+              onClick={exportCsv}
+              disabled={exporting || !total}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {exporting ? 'Menyiapkan…' : 'Ekspor CSV'}
+            </button>
+          </div>
         </div>
+
+        {/* Table */}
+        <div className="rs-table-wrap">
+          <table className="rs-table">
+            <thead>
+              <tr>
+                {sortTh('name', 'Peserta')}
+                {sortTh('date', 'Tanggal asesmen')}
+                {sortTh('overall', 'Leadership Index', 'rs-num')}
+                <th>Kategori</th>
+                <th>Versi</th>
+                <th className="rs-act">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan="6" className="rs-empty">
+                    Memuat data peserta…
+                  </td>
+                </tr>
+              )}
+              {!loading && !rows.length && (
+                <tr>
+                  <td colSpan="6" className="rs-empty">
+                    {hasFilters
+                      ? 'Tidak ada hasil yang cocok dengan filter.'
+                      : 'Belum ada peserta yang menyelesaikan asesmen.'}
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                rows.map((row) => (
+                  <tr key={row.result_id} className={row.result_id === selectedId ? 'on' : ''}>
+                    <td data-label="Peserta">
+                      <div className="rs-person">
+                        <span className="rs-avatar" aria-hidden="true">
+                          {(row.participant_name || '?').trim().charAt(0).toUpperCase()}
+                        </span>
+                        <span className="rs-person-text">
+                          <strong>{row.participant_name}</strong>
+                          {row.participant_email && <small>{row.participant_email}</small>}
+                        </span>
+                      </div>
+                    </td>
+                    <td data-label="Tanggal">
+                      <div className="rs-datetime">
+                        <span className="rs-date-main">{dfmt(row.assessment_date)}</span>
+                        {tfmt(row.assessment_date) && (
+                          <span className="rs-time-sub">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="10" />
+                              <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            {tfmt(row.assessment_date)}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td data-label="Index" className="rs-num">
+                      <span className="rs-score">{fmt(row.overall_score)}</span>
+                    </td>
+                    <td data-label="Kategori">
+                      <span className={'rs-cat rs-cat-' + catTone(row.category)}>
+                        {row.category}
+                      </span>
+                    </td>
+                    <td data-label="Versi">
+                      <span className="rs-ver">v{row.version_number}</span>
+                    </td>
+                    <td data-label="" className="rs-act">
+                      <button type="button" className="rs-view" onClick={() => openDetail(row)}>
+                        Lihat detail
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div className="rs-footer">
+          <div className="rs-size">
+            <span>Tampilkan</span>
+            <CustomSelect
+              className="cs-compact"
+              ariaLabel="Jumlah entri per halaman"
+              value={pageSize}
+              onChange={(val) => setPageSize(Number(val))}
+              options={PAGE_SIZE_OPTIONS.map((opt) => ({ value: opt, label: String(opt) }))}
+            />
+            <span>entri</span>
+          </div>
+
+          <span className="rs-info">
+            {fromRecord}–{toRecord} dari {total}
+          </span>
+
+          <nav className="rs-pager" aria-label="Paginasi hasil">
+            <button
+              type="button"
+              className="rs-pg"
+              disabled={page === 0}
+              onClick={() => setPage(0)}
+              aria-label="Halaman pertama"
+            >
+              «
+            </button>
+            <button
+              type="button"
+              className="rs-pg"
+              disabled={page === 0}
+              onClick={() => setPage(page - 1)}
+              aria-label="Halaman sebelumnya"
+            >
+              ‹
+            </button>
+            <span className="rs-pg-now">
+              {page + 1} / {pages}
+            </span>
+            <button
+              type="button"
+              className="rs-pg"
+              disabled={page + 1 >= pages}
+              onClick={() => setPage(page + 1)}
+              aria-label="Halaman berikutnya"
+            >
+              ›
+            </button>
+            <button
+              type="button"
+              className="rs-pg"
+              disabled={page + 1 >= pages}
+              onClick={() => setPage(pages - 1)}
+              aria-label="Halaman terakhir"
+            >
+              »
+            </button>
+          </nav>
+        </div>
+      </section>
+
+      {/* Detail dialog */}
+      {selectedId && (
+        <div
+          className="rs-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeDetail()
+          }}
+        >
+          <section
+            className="rs-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Detail hasil peserta"
+          >
+            <div className="rs-modal-head no-print">
+              <div>
+                <h2>Detail hasil</h2>
+                {detail && (
+                  <p>
+                    {detail.participant.email || 'Tanpa email'} · Versi konfigurasi{' '}
+                    {detail.version.version_number}
+                    {detail.version.published_at
+                      ? ` (dipublikasikan ${dfmt(detail.version.published_at)})`
+                      : ''}
+                  </p>
+                )}
+              </div>
+              <button type="button" className="rs-close" onClick={closeDetail} autoFocus>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+                Tutup
+              </button>
+            </div>
+
+            <div className="rs-modal-body">
+              {detailLoading && <p className="meta">Memuat detail peserta…</p>}
+              {detailError && <p className="alert">{detailError}</p>}
+              {detail && (
+                <>
+                  <Suspense fallback={<PageLoader variant="report" label="Memuat laporan peserta…" />}>
+                    <Report result={detail.result} compact />
+                  </Suspense>
+                  <details className="rs-answers">
+                    <summary>Detail jawaban peserta ({detail.responses.length})</summary>
+                    <AnswersDataTable
+                      responses={detail.responses}
+                      dimensions={detail.result.config?.dimensions ?? []}
+                    />
+                  </details>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+    </>
+  )
+}
+
+function AnswersDataTable({ responses, dimensions }) {
+  const [search, setSearch] = useState('')
+  const [dimFilter, setDimFilter] = useState('all')
+  const [sortKey, setSortKey] = useState('index')
+  const [sortDir, setSortDir] = useState('asc')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
+
+  const dimName = (id) => dimensions.find((d) => d.id === id)?.name ?? '—'
+
+  const enriched = responses.map((r, i) => ({
+    ...r,
+    index: i + 1,
+    dimension: dimName(r.question.dimension_id),
+    itemScore: ((r.corrected_answer - 1) / 4) * 100,
+  }))
+
+  const q = search.trim().toLowerCase()
+  const filtered = enriched.filter((r) => {
+    if (dimFilter !== 'all' && r.question.dimension_id !== dimFilter) return false
+    if (q) {
+      const hay = `${r.question.text} ${r.dimension} ${SCALE[r.answer - 1] ?? ''}`.toLowerCase()
+      if (!hay.includes(q)) return false
+    }
+    return true
+  })
+
+  const sorted = [...filtered].sort((a, b) => {
+    let cmp = 0
+    if (sortKey === 'index') cmp = a.index - b.index
+    else if (sortKey === 'dimension') cmp = a.dimension.localeCompare(b.dimension)
+    else if (sortKey === 'answer') cmp = a.answer - b.answer
+    else if (sortKey === 'score') cmp = a.itemScore - b.itemScore
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const safePage = Math.min(page, totalPages - 1)
+  const paged = sorted.slice(safePage * pageSize, safePage * pageSize + pageSize)
+
+  function handleSort(key) {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+    setPage(0)
+  }
+
+  const sortIcon = (key) => {
+    if (sortKey !== key) return <span className="rs-sort-icon" aria-hidden="true">↕</span>
+    return (
+      <span className="rs-sort-icon on" aria-hidden="true">
+        {sortDir === 'asc' ? '▲' : '▼'}
+      </span>
+    )
+  }
+
+  return (
+    <div className="rs-answers-dt">
+      <div className="rs-toolbar">
+        <div className="rs-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
+          <input
+            type="search"
+            placeholder="Cari pertanyaan atau jawaban…"
+            aria-label="Cari pertanyaan atau jawaban"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(0)
+            }}
+          />
+        </div>
+
+        <CustomSelect
+          ariaLabel="Filter dimensi"
+          value={dimFilter}
+          onChange={(val) => {
+            setDimFilter(val)
+            setPage(0)
+          }}
+          options={[
+            { value: 'all', label: 'Semua dimensi' },
+            ...dimensions.map((d) => ({ value: d.id, label: d.name })),
+          ]}
+        />
       </div>
 
-      {error && <p className="alert">{error}</p>}
-
-      <div className="tablewrap card dt-tablewrap">
-        <table className="data stack dt-table">
+      <div className="rs-table-wrap">
+        <table className="rs-table rs-table-sm">
           <thead>
             <tr>
-              <th className="dt-th-sortable" onClick={() => sortBy('name')}>
-                <div className="dt-th-content">
-                  <span>Participant</span>
-                  {renderSortIndicator('name')}
-                </div>
+              <th>
+                <button type="button" className="rs-sort" onClick={() => handleSort('index')}>
+                  <span>#</span>
+                  {sortIcon('index')}
+                </button>
               </th>
-              <th className="dt-th-sortable" onClick={() => sortBy('date')}>
-                <div className="dt-th-content">
-                  <span>Assessment Date</span>
-                  {renderSortIndicator('date')}
-                </div>
+              <th>Pertanyaan</th>
+              <th>
+                <button type="button" className="rs-sort" onClick={() => handleSort('dimension')}>
+                  <span>Dimensi</span>
+                  {sortIcon('dimension')}
+                </button>
               </th>
-              <th className="dt-th-sortable" onClick={() => sortBy('overall')}>
-                <div className="dt-th-content">
-                  <span>Leadership Index</span>
-                  {renderSortIndicator('overall')}
-                </div>
+              <th>
+                <button type="button" className="rs-sort" onClick={() => handleSort('answer')}>
+                  <span>Jawaban</span>
+                  {sortIcon('answer')}
+                </button>
               </th>
-              <th>Category</th>
-              <th>Version</th>
-              <th style={{ width: '80px', textAlign: 'center' }}>Aksi</th>
+              <th className="rs-num">
+                <button type="button" className="rs-sort" onClick={() => handleSort('score')}>
+                  <span>Skor butir</span>
+                  {sortIcon('score')}
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {loading && (
+            {paged.map((response) => (
+              <tr key={response.question_id}>
+                <td data-label="No.">
+                  <span className="rs-ver">#{response.index}</span>
+                </td>
+                <td data-label="Pertanyaan">
+                  {response.question.text}
+                  {response.question.reverse_scoring && <small className="tag">reverse</small>}
+                </td>
+                <td data-label="Dimensi">{response.dimension}</td>
+                <td data-label="Jawaban">
+                  {response.answer} · {SCALE[response.answer - 1]}
+                </td>
+                <td data-label="Skor butir" className="rs-num">
+                  <strong>{fmt(response.itemScore)}</strong>
+                </td>
+              </tr>
+            ))}
+            {!paged.length && (
               <tr>
-                <td colSpan="6" className="dt-empty">
-                  Memuat data peserta…
+                <td colSpan="5" className="rs-empty">
+                  Tidak ada jawaban yang cocok dengan filter.
                 </td>
               </tr>
             )}
-            {!loading && !rows.length && (
-              <tr>
-                <td colSpan="6" className="dt-empty">
-                  Tidak ada data yang cocok dengan kriteria pencarian.
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              rows.map((row) => (
-                <tr key={row.result_id} className={row.result_id === selectedId ? 'on' : ''}>
-                  <td data-label="Peserta">
-                    <strong className="dt-primary-text">{row.participant_name}</strong>
-                    {row.participant_email && <span className="sub">{row.participant_email}</span>}
-                  </td>
-                  <td data-label="Tanggal">{dfmt(row.assessment_date)}</td>
-                  <td data-label="Leadership Index">
-                    <span className="dt-score-pill">{fmt(row.overall_score)}</span>
-                  </td>
-                  <td data-label="Kategori">
-                    <span className="badge">{row.category}</span>
-                  </td>
-                  <td data-label="Versi">
-                    <span className="badge off">v{row.version_number}</span>
-                  </td>
-                  <td data-label="Aksi">
-                    <button className="dt-btn-action" onClick={() => openDetail(row)}>
-                      Lihat
-                    </button>
-                  </td>
-                </tr>
-              ))}
           </tbody>
         </table>
       </div>
 
-      {/* DataTables Info & Pagination Footer */}
-      <div className="dt-controls-bottom">
-        <div className="dt-info">
-          Menampilkan {fromRecord} sampai {toRecord} dari {total} entri
+      <div className="rs-footer">
+        <div className="rs-size">
+          <span>Tampilkan</span>
+          <CustomSelect
+            className="cs-compact"
+            ariaLabel="Jumlah jawaban per halaman"
+            value={pageSize}
+            onChange={(val) => {
+              setPageSize(Number(val))
+              setPage(0)
+            }}
+            options={PAGE_SIZE_OPTIONS.map((opt) => ({ value: opt, label: String(opt) }))}
+          />
+          <span>entri</span>
         </div>
-        <div className="dt-pagination">
+
+        <span className="rs-info">
+          {sorted.length === 0
+            ? '0 entri'
+            : `${safePage * pageSize + 1}–${Math.min((safePage + 1) * pageSize, sorted.length)} dari ${sorted.length}`}
+        </span>
+
+        <nav className="rs-pager" aria-label="Paginasi jawaban">
           <button
             type="button"
-            className="dt-page-btn"
-            disabled={page === 0}
+            className="rs-pg"
+            disabled={safePage === 0}
             onClick={() => setPage(0)}
-            title="Halaman pertama"
+            aria-label="Halaman pertama"
           >
             «
           </button>
           <button
             type="button"
-            className="dt-page-btn"
-            disabled={page === 0}
-            onClick={() => setPage(page - 1)}
+            className="rs-pg"
+            disabled={safePage === 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            aria-label="Halaman sebelumnya"
           >
-            Sebelumnya
+            ‹
           </button>
-          <span className="dt-page-indicator">
-            {page + 1} / {pages}
+          <span className="rs-pg-now">
+            {safePage + 1} / {totalPages}
           </span>
           <button
             type="button"
-            className="dt-page-btn"
-            disabled={page + 1 >= pages}
-            onClick={() => setPage(page + 1)}
+            className="rs-pg"
+            disabled={safePage + 1 >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            aria-label="Halaman berikutnya"
           >
-            Berikutnya
+            ›
           </button>
           <button
             type="button"
-            className="dt-page-btn"
-            disabled={page + 1 >= pages}
-            onClick={() => setPage(pages - 1)}
-            title="Halaman terakhir"
+            className="rs-pg"
+            disabled={safePage + 1 >= totalPages}
+            onClick={() => setPage(totalPages - 1)}
+            aria-label="Halaman terakhir"
           >
             »
           </button>
-        </div>
+        </nav>
       </div>
-
-      {selectedId && (
-        <section className="detail-panel card">
-          <div className="detail-meta no-print">
-            <h2>Detail hasil</h2>
-            <button className="link" onClick={closeDetail}>
-              Tutup
-            </button>
-          </div>
-          {detailLoading && <p className="meta">Memuat detail peserta…</p>}
-          {detailError && <p className="alert">{detailError}</p>}
-          {detail && (
-            <>
-              <p className="meta">
-                {detail.participant.email || 'Tanpa email'} · Versi konfigurasi{' '}
-                {detail.version.version_number}
-                {detail.version.published_at
-                  ? ` (dipublikasikan ${dfmt(detail.version.published_at)})`
-                  : ''}
-              </p>
-              <Report result={detail.result} compact />
-              <details className="answers">
-                <summary>Detail jawaban peserta ({detail.responses.length})</summary>
-                <div className="tablewrap">
-                  <table className="data stack">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Pertanyaan</th>
-                        <th>Dimensi</th>
-                        <th>Jawaban</th>
-                        <th>Skor butir</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.responses.map((response, i) => {
-                        const dim = (detail.result.config?.dimensions ?? []).find(
-                          (item) => item.id === response.question.dimension_id
-                        )
-                        return (
-                          <tr key={response.question_id}>
-                            <td data-label="No.">{i + 1}</td>
-                            <td data-label="Pertanyaan">
-                              {response.question.text}
-                              {response.question.reverse_scoring && (
-                                <small className="tag">reverse</small>
-                              )}
-                            </td>
-                            <td data-label="Dimensi">{dim?.name ?? '—'}</td>
-                            <td data-label="Jawaban">
-                              {response.answer} · {SCALE[response.answer - 1]}
-                            </td>
-                            <td data-label="Skor butir">{fmt(((response.corrected_answer - 1) / 4) * 100)}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            </>
-          )}
-        </section>
-      )}
-    </>
+    </div>
   )
 }

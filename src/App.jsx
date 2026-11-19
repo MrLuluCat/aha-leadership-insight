@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import Radar from './Radar'
 import logo from './assets/aha-logo.jpg'
-import Report from './Report'
-import Admin from './Admin'
+import PageLoader from './components/PageLoader'
 import { SCALE } from './scoring'
+
+const Report = lazy(() => import('./Report'))
+const Admin = lazy(() => import('./Admin'))
 import { isSupabaseConfigured, supabaseConfigError } from './lib/supabase'
 import {
   fetchActiveAssessment,
@@ -14,6 +16,7 @@ import {
 
 const INPROGRESS_KEY = 'aha_inprogress'
 const LAST_KEY = 'aha_last_session'
+const PROFILE_KEY = 'aha_participant_profile'
 const ART_SHAPE = [0.9, 0.62, 0.78, 0.55, 0.85, 0.7, 0.6]
 
 const readJSON = (key) => {
@@ -43,7 +46,13 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  if (route.startsWith('#/admin')) return <Admin />
+  if (route.startsWith('#/admin')) {
+    return (
+      <Suspense fallback={<PageLoader label="Memuat dashboard admin…" />}>
+        <Admin />
+      </Suspense>
+    )
+  }
   return <Participant />
 }
 
@@ -59,6 +68,7 @@ function Participant() {
   const [result, setResult] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [savedProfile, setSavedProfile] = useState(() => readJSON(PROFILE_KEY) || { name: '', email: '' })
 
   useEffect(() => {
     let mounted = true
@@ -148,11 +158,16 @@ function Participant() {
     setBusy(true)
     setError('')
     try {
+      const profile = { name, email }
+      writeJSON(PROFILE_KEY, profile)
+      setSavedProfile(profile)
+
       const data = await startAssessment(name, email)
       const nextSession = {
         session_id: data.session_id,
         access_token: data.access_token,
         participant_name: data.participant_name,
+        participant_email: email,
         version_number: data.version_number,
       }
       setSession(nextSession)
@@ -199,7 +214,12 @@ function Participant() {
     try {
       const data = await submitAssessment(session.session_id, session.access_token, answers)
       clearKey(INPROGRESS_KEY)
-      writeJSON(LAST_KEY, { session_id: session.session_id, access_token: session.access_token })
+      writeJSON(LAST_KEY, {
+        session_id: session.session_id,
+        access_token: session.access_token,
+        participant_name: session.participant_name,
+        participant_email: session.participant_email || savedProfile.email || '',
+      })
       setResult(data)
       setView('result')
       window.scrollTo({ top: 0 })
@@ -210,7 +230,40 @@ function Participant() {
     }
   }
 
+  async function backToIntro() {
+    setError('')
+    setView('intro')
+    if (!config) {
+      setLoading(true)
+      try {
+        const active = await fetchActiveAssessment()
+        if (!active) {
+          setLoadError('Asesmen belum tersedia. Silakan hubungi administrator.')
+        } else {
+          setLoadError('')
+          setConfig(active.config)
+          setVersion(active.version_number)
+        }
+      } catch (err) {
+        setLoadError(err.message || 'Gagal memuat konfigurasi asesmen.')
+      } finally {
+        setLoading(false)
+      }
+    }
+    window.scrollTo({ top: 0 })
+  }
+
   async function restart() {
+    const lastMeta = readJSON(LAST_KEY)
+    const nextProfile = {
+      name: result?.participant_name || lastMeta?.participant_name || savedProfile.name || '',
+      email: result?.participant_email || lastMeta?.participant_email || savedProfile.email || '',
+    }
+    if (nextProfile.name || nextProfile.email) {
+      writeJSON(PROFILE_KEY, nextProfile)
+      setSavedProfile(nextProfile)
+    }
+
     clearKey(LAST_KEY)
     clearKey(INPROGRESS_KEY)
     setResult(null)
@@ -238,12 +291,7 @@ function Participant() {
   }
 
   if (loading) {
-    return (
-      <main className="wrap splash">
-        <img className="logo sm" src={logo} alt="AHA Leadership Centre" />
-        <p className="meta">Memuat asesmen…</p>
-      </main>
-    )
+    return <PageLoader label="Memuat asesmen…" />
   }
 
   if (loadError) {
@@ -264,7 +312,9 @@ function Participant() {
   if (view === 'result' && result) {
     return (
       <main className="rp-page">
-        <Report result={result} onRestart={restart} />
+        <Suspense fallback={<PageLoader variant="report" label="Memuat laporan hasil…" />}>
+          <Report result={result} onBack={backToIntro} onRestart={restart} />
+        </Suspense>
       </main>
     )
   }
@@ -292,20 +342,37 @@ function Participant() {
       version={version}
       busy={busy}
       error={error}
+      lastResult={result}
+      initialProfile={savedProfile}
+      onViewResult={() => {
+        setView('result')
+        window.scrollTo({ top: 0 })
+      }}
       onStart={handleStart}
     />
   )
 }
 
-function Intro({ config, version, busy, error, onStart }) {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
+function Intro({ config, version, busy, error, lastResult, initialProfile, onViewResult, onStart }) {
+  const [name, setName] = useState(initialProfile?.name || '')
+  const [email, setEmail] = useState(initialProfile?.email || '')
+  const [confirmStart, setConfirmStart] = useState(false)
   const dimensions = config?.dimensions ?? []
   const questionCount = config?.questions?.length ?? 0
 
+  useEffect(() => {
+    if (initialProfile?.name && !name) setName(initialProfile.name)
+    if (initialProfile?.email && !email) setEmail(initialProfile.email)
+  }, [initialProfile])
+
   function submit(event) {
     event.preventDefault()
-    if (name.trim()) onStart({ name: name.trim(), email: email.trim() })
+    if (!name.trim()) return
+    if (lastResult) {
+      setConfirmStart(true)
+      return
+    }
+    onStart({ name: name.trim(), email: email.trim() })
   }
 
   // Icons mapping for the 7 dimensions
@@ -413,6 +480,7 @@ function Intro({ config, version, busy, error, onStart }) {
                     onChange={(event) => setName(event.target.value)}
                     placeholder="Tulis nama Anda"
                     autoComplete="name"
+                    autoFocus
                     maxLength={200}
                     required
                   />
@@ -445,17 +513,33 @@ function Intro({ config, version, busy, error, onStart }) {
                   <circle cx="12" cy="12" r="10" />
                   <polyline points="12 6 12 12 16 14" />
                 </svg>
-                <span>±2 penyelesaian dalam 7–8 menit</span>
-              </span>
-              <span className="hero-meta-dot">•</span>
-              <span className="hero-meta-item">
-                <span>Waktu pengerjaan 15–20 menit</span>
+                <span>Waktu pengerjaan sekitar <strong>10–15 menit</strong></span>
               </span>
             </div>
           </div>
 
           {/* Right Column: Hero Preview Card */}
           <div className="hero-preview-wrapper">
+            {lastResult && (
+              <button type="button" className="hero-saved-card" onClick={onViewResult}>
+                <div className="hero-saved-left">
+                  <span className="hero-saved-pulse" aria-hidden="true" />
+                  <span className="hero-saved-avatar" aria-hidden="true">
+                    {(lastResult.participant_name || '?').trim().charAt(0).toUpperCase()}
+                  </span>
+                  <div className="hero-saved-text">
+                    <span className="hero-saved-eyebrow">Hasil asesmen tersimpan</span>
+                    <strong className="hero-saved-name">{lastResult.participant_name}</strong>
+                  </div>
+                </div>
+                <span className="hero-saved-cta">
+                  <span>Lihat hasil terakhir</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
+                </span>
+              </button>
+            )}
             <div className="hero-preview-card">
               <div className="preview-card-grid">
                 {/* Left side: Radar chart */}
@@ -503,34 +587,103 @@ function Intro({ config, version, busy, error, onStart }) {
             <p>Asesmen ini mengukur 7 dimensi utama kepemimpinan Anda.</p>
           </div>
 
-          <div className="dimensions-cards-grid">
-            {dimensions.map((d, index) => (
-              <div key={d.id} className="dim-feature-card">
-                <div className="dim-icon-circle">
-                  {getDimensionIcon(index)}
+          <div className="dimensions-marquee">
+            <div className="dimensions-track">
+              {dimensions.map((d, index) => (
+                <div key={d.id} className="dim-feature-card">
+                  <div className="dim-icon-circle">
+                    {getDimensionIcon(index)}
+                  </div>
+                  <h3>{d.name}</h3>
+                  <p>{d.description}</p>
                 </div>
-                <h3>{d.name}</h3>
-                <p>{d.description}</p>
-              </div>
-            ))}
+              ))}
+              {dimensions.map((d, index) => (
+                <div key={`dup-${d.id}`} className="dim-feature-card" aria-hidden="true">
+                  <div className="dim-icon-circle">
+                    {getDimensionIcon(index)}
+                  </div>
+                  <h3>{d.name}</h3>
+                  <p>{d.description}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
       <footer className="landing-footer">
-        <div className="landing-footer-container">
-          <div className="footer-left">
-            <p className="footer-copy">© {new Date().getFullYear()} AHA Leadership Centre. All rights reserved.</p>
-            <span className="footer-version">Versi asesmen {version}</span>
-          </div>
-          <div className="footer-right">
-            <a className="footer-admin-link" href="#/admin">
-              Masuk Dashboard Admin →
-            </a>
-          </div>
+        <div className="landing-footer-container landing-footer-centered">
+          <p className="footer-copy">© {new Date().getFullYear()} AHA Leadership Centre. All rights reserved.</p>
         </div>
       </footer>
+      {/* Confirmation modal when starting a new assessment while a previous result exists */}
+      {confirmStart && lastResult && (
+        <div
+          className="qm-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !busy) setConfirmStart(false)
+          }}
+        >
+          <div className="qm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-start-title">
+            <div className="qm-head">
+              <div className="qm-head-left">
+                <span className="qm-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 .49-3.51" />
+                  </svg>
+                </span>
+                <div>
+                  <h2 id="confirm-start-title">Mulai Asesmen Baru?</h2>
+                  <p>Anda sudah pernah menyelesaikan asesmen sebelumnya.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="qm-close"
+                onClick={() => setConfirmStart(false)}
+                disabled={busy}
+                aria-label="Tutup"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="qm-body">
+              <p className="rp-confirm-text">
+                Anda sudah pernah melakukan asesmen sebagai{' '}
+                <strong>"{lastResult.participant_name}"</strong>. Jika melanjutkan, hasil tersimpan
+                sebelumnya akan diganti dan informasi nama serta email yang Anda masukkan akan
+                digunakan pada asesmen baru.
+              </p>
+            </div>
+            <div className="qm-foot">
+              <button
+                type="button"
+                className="qm-btn-cancel"
+                onClick={() => setConfirmStart(false)}
+                disabled={busy}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="qm-btn-save"
+                disabled={busy}
+                onClick={() => {
+                  setConfirmStart(false)
+                  onStart({ name: name.trim(), email: email.trim() })
+                }}
+              >
+                {busy ? 'Menyiapkan…' : 'Ya, Mulai Asesmen Baru'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -845,6 +998,72 @@ function Quiz({ config, session, answers, index, busy, error, onAnswer, onNaviga
               </button>
               <button className="link" onClick={() => setConfirmExit(false)}>
                 Lanjutkan asesmen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Confirmation modal when starting a new assessment while a previous result exists */}
+      {confirmStart && lastResult && (
+        <div
+          className="qm-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !busy) setConfirmStart(false)
+          }}
+        >
+          <div className="qm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-start-title">
+            <div className="qm-head">
+              <div className="qm-head-left">
+                <span className="qm-icon" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 .49-3.51" />
+                  </svg>
+                </span>
+                <div>
+                  <h2 id="confirm-start-title">Mulai Asesmen Baru?</h2>
+                  <p>Anda sudah pernah menyelesaikan asesmen sebelumnya.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="qm-close"
+                onClick={() => setConfirmStart(false)}
+                disabled={busy}
+                aria-label="Tutup"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="qm-body">
+              <p className="rp-confirm-text">
+                Anda sudah pernah melakukan asesmen sebagai{' '}
+                <strong>"{lastResult.participant_name}"</strong>. Jika melanjutkan, hasil tersimpan
+                sebelumnya akan diganti dan informasi nama serta email yang Anda masukkan akan
+                digunakan pada asesmen baru.
+              </p>
+            </div>
+            <div className="qm-foot">
+              <button
+                type="button"
+                className="qm-btn-cancel"
+                onClick={() => setConfirmStart(false)}
+                disabled={busy}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="qm-btn-save"
+                disabled={busy}
+                onClick={() => {
+                  setConfirmStart(false)
+                  onStart({ name: name.trim(), email: email.trim() })
+                }}
+              >
+                {busy ? 'Menyiapkan…' : 'Ya, Mulai Asesmen Baru'}
               </button>
             </div>
           </div>

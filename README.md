@@ -2,7 +2,7 @@
 
 Asesmen kepemimpinan tujuh dimensi dengan React 18 + Vite 5 dan backend Supabase
 (PostgreSQL, Auth, RLS, RPC). Peserta mengisi asesmen tanpa login; admin mengelola
-instrumen, bobot, versi, dan melihat hasil melalui dashboard.
+instrumen, bobot, versi, hasil peserta, serta backup & pengelolaan dataset melalui dashboard.
 
 ## Menjalankan
 
@@ -21,9 +21,8 @@ VITE_SUPABASE_URL=https://<project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon-key>
 ```
 
-Ambil dari Supabase Project Settings → API. Jangan pernah menaruh service role key
-di frontend. Jika env belum diisi, aplikasi menampilkan pesan konfigurasi, bukan
-crash.
+Ambil dari Supabase Project Settings → API. Jangan pernah menaruh `service_role` key
+di frontend. Jika env belum diisi, aplikasi menampilkan pesan konfigurasi, bukan crash.
 
 ## Setup Supabase
 
@@ -31,7 +30,7 @@ Jalankan file SQL berikut secara berurutan di Supabase SQL Editor:
 
 1. `supabase/migrations/0001_schema.sql` — tabel, index, trigger, RLS.
 2. `supabase/migrations/0002_functions.sql` — RPC scoring, validasi, statistik.
-3. `supabase/migrations/0003_seed.sql` — 7 dimensi + 42 pertanyaan, versi 1
+3. `supabase/migrations/0003_seed.sql` — 7 dimensi + pertanyaan awal, versi 1
    published dan versi 2 draft.
 
 ### Membuat admin pertama
@@ -73,12 +72,25 @@ atau set password langsung dari dashboard.
 
 ```
 src/
-  App.jsx                 alur peserta (intro → quiz → laporan)
-  Report.jsx              laporan hasil (radar, strengths, priorities, 21 hari)
-  Admin.jsx               shell admin + proteksi sesi
-  admin/                  Overview, Results, Questions, Dimensions, Versions
+  App.jsx                 alur peserta (intro → quiz → laporan) + lazy loading
+  Report.jsx              laporan hasil (radar, strengths, priorities, 21 hari, cetak PDF, Excel)
+  Admin.jsx               shell admin, sidebar navigasi, proteksi sesi
+  admin/
+    AdminLogin.jsx        halaman login admin
+    Overview.jsx          ringkasan statistik, rata-rata dimensi, distribusi, tren
+    Results.jsx           tabel hasil peserta, filter tanggal/kategori, detail & ekspor
+    Questions.jsx         bank pertanyaan (CRUD modal, filter, bobot, reverse scoring)
+    Dimensions.jsx        editor dimensi & bobot (donut validasi 100%, hints, bobot soal)
+    Versions.jsx          riwayat snapshot versi asesmen
+    DataManagement.jsx    pusat backup CSV/JSON, restore konfigurasi, cleanup & diagnostik
+    CustomDatePicker.jsx  kalender rentang tanggal kustom (responsif mobile)
+    CustomSelect.jsx      dropdown select kustom dengan auto-placement
+    TrendChart.jsx        grafik SVG tren peserta bulanan
+    icons.jsx             ikon SVG terpadu
+  components/
+    PageLoader.jsx        skeleton shimmer untuk lazy loading per halaman
   services/               semua akses Supabase (assessment.js, admin.js)
-  lib/                    supabase client, auth hook, format, report builder
+  lib/                    supabase client, auth hook, format tanggal/waktu, report builder, exportExcel
   scoring.js              skala jawaban dan kategori hasil
 supabase/migrations/      schema, RPC, seed
 ```
@@ -91,23 +103,34 @@ supabase/migrations/      schema, RPC, seed
 - **Working draft**: tabel `dimensions` dan `questions` adalah konfigurasi kerja.
   `save_configuration()` menyimpan perubahan dimensi + bobot pertanyaan secara atomik.
   `save_assessment_draft()` menyimpan snapshot draft; `publish_assessment()`
-  memvalidasi (7 dimensi aktif, total bobot 100%, minimal satu pertanyaan aktif per
-  dimensi, bobot > 0), mengarsipkan versi published lama, mempublikasikan draft, dan
+  memvalidasi dimensi aktif, total bobot 100%, minimal satu pertanyaan aktif per
+  dimensi, bobot > 0, mengarsipkan versi published lama, mempublikasikan draft, dan
   membuat draft berikutnya.
 - **Idempotensi submit**: sesi dikunci (`for update`), dan submit ulang pada sesi
   selesai mengembalikan snapshot hasil yang sama.
 
 ## Alur admin
 
-- **Overview** — total peserta, asesmen selesai, rata-rata index, dimensi
-  tertinggi/terendah, rata-rata per dimensi, distribusi kategori, tren 12 bulan.
-- **Hasil Peserta** — pencarian, filter kategori/tanggal, sorting, pagination,
-  detail jawaban, ekspor CSV.
-- **Pertanyaan** — tambah/edit, dimensi, bobot, reverse scoring, urutan, aktif/nonaktif
-  (tanpa hard delete agar histori aman).
-- **Dimensi & Bobot** — edit nama/deskripsi/narasi, bobot dimensi dengan indikator
-  total langsung, tabel bobot pertanyaan, simpan draft, publikasikan.
-- **Versi Asesmen** — daftar versi, status, preview snapshot, simpan/publikasi draft.
+- **Dashboard (Overview)** — total peserta, asesmen selesai, rata-rata index, dimensi
+  tertinggi/terendah, rata-rata per dimensi, distribusi kategori, tren 6/12 bulan.
+- **Hasil Peserta** — pencarian, filter kategori & rentang tanggal, sorting,
+  pagination, timestamp pengerjaan lengkap (`HH:mm:ss`), detail laporan + tabel jawaban,
+  cetak / simpan PDF A4, ekspor Excel (`.xls`), dan ekspor CSV.
+- **Pertanyaan** — tambah/edit/hapus via modal, dimensi, bobot, reverse scoring,
+  urutan, aktif/nonaktif dengan tombol ikon aksi yang responsif.
+- **Dimensi & Bobot** — editor bertab per dimensi, indikator donut total bobot `100%`,
+  bantuan interaktif (`?`), tabel bobot pertanyaan, simpan draf/perubahan, publikasikan.
+- **Versi Asesmen** — daftar versi, status, preview snapshot konfigurasi, simpan/publikasi draft.
+- **Kelola Data & Backup** —
+  - **Backup Utama Hasil Asesmen Peserta (`.CSV`)**: satu baris per peserta lengkap
+    dengan skor ke-7 dimensi, *Top 3 Strengths*, *Development Priorities*, *21-Day Action Plan*,
+    serta seluruh jawaban per butir pertanyaan.
+  - **Full Master Database Backup (`.CSV`) & Snapshot (`.JSON`)**: mencadangkan seluruh
+    tabel database (`dimensions`, `questions`, `assessment_versions`, hasil, skor,
+    jawaban, insight laporan, `profiles`, `participants`, `assessment_sessions`).
+  - **Backup CSV per Tabel**, **Restore Konfigurasi** (`.CSV`/`.JSON`) dengan pratinjau
+    perbandingan bobot ke *Working Draft*, **Pembersihan Data & Deteksi Duplikat**,
+    serta **Diagnostik Kesehatan Dataset**.
 
 ## Deployment Rumahweb
 
@@ -123,9 +146,9 @@ supabase/migrations/      schema, RPC, seed
 
 1. Login dengan admin nonaktif → dashboard menolak akses.
 2. Aktifkan admin, login ulang → Overview, Hasil Peserta, Pertanyaan, Dimensi &
-   Bobot, Versi Asesmen dapat dibuka.
-3. Buka `#/` di jendela privat → isi nama → jawab semua → kirim → laporan tampil
-   dan dapat dicetak.
+   Bobot, Versi Asesmen, dan Kelola Data dapat dibuka.
+3. Buka `#/` di jendela privat → isi nama → jawab semua → kirim → laporan tampil,
+   dapat diekspor ke Excel, dan dapat dicetak ke PDF.
 4. Ubah bobot dimensi menjadi tidak 100% → tombol publikasi menampilkan error
    validasi.
 5. Kembalikan ke 100%, publikasikan → versi baru muncul; buka hasil peserta lama →

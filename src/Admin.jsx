@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { isSupabaseConfigured, supabaseConfigError } from './lib/supabase'
 import { useAuth } from './lib/useAuth'
-import AdminLogin from './admin/AdminLogin'
-import Overview from './admin/Overview'
-import Results from './admin/Results'
-import Questions from './admin/Questions'
-import Dimensions from './admin/Dimensions'
-import Versions from './admin/Versions'
+import PageLoader from './components/PageLoader'
 import Icon from './admin/icons'
 import logo from './assets/aha-logo.jpg'
+
+const AdminLogin = lazy(() => import('./admin/AdminLogin'))
+const Overview = lazy(() => import('./admin/Overview'))
+const Results = lazy(() => import('./admin/Results'))
+const Questions = lazy(() => import('./admin/Questions'))
+const Dimensions = lazy(() => import('./admin/Dimensions'))
+const Versions = lazy(() => import('./admin/Versions'))
+const DataManagement = lazy(() => import('./admin/DataManagement'))
 
 const TABS = [
   { id: 'overview', label: 'Dashboard', icon: 'home' },
@@ -16,6 +19,7 @@ const TABS = [
   { id: 'questions', label: 'Pertanyaan', icon: 'questions' },
   { id: 'dimensions', label: 'Dimensi & Bobot', icon: 'dimensions' },
   { id: 'versions', label: 'Versi Asesmen', icon: 'versions' },
+  { id: 'data', label: 'Kelola Data', icon: 'database' },
 ]
 
 const tabFromHash = () => {
@@ -74,16 +78,15 @@ export default function Admin() {
   }
 
   if (auth.loading) {
-    return (
-      <main className="wrap splash">
-        <p className="brand">Dashboard admin</p>
-        <p className="meta">Memeriksa sesi…</p>
-      </main>
-    )
+    return <PageLoader label="Memeriksa sesi admin…" />
   }
 
   if (!auth.session) {
-    return <AdminLogin onLogin={auth.login} />
+    return (
+      <Suspense fallback={<PageLoader label="Memuat halaman login…" />}>
+        <AdminLogin onLogin={auth.login} />
+      </Suspense>
+    )
   }
 
   if (auth.error) {
@@ -135,50 +138,7 @@ export default function Admin() {
           <Icon name={menuOpen ? 'close' : 'menu'} size={24} />
         </button>
         <img className="mobile-bar-logo" src={logo} alt="AHA Leadership Insight" />
-        <div className="user-dropdown-container" ref={dropdownRef}>
-          <button
-            type="button"
-            className="user-trigger mobile-avatar-btn"
-            aria-label="Menu akun"
-            aria-expanded={userDropdownOpen}
-            onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-          >
-            <span className="avatar sm" aria-hidden="true">
-              {(auth.profile.email || 'A').charAt(0).toUpperCase()}
-            </span>
-          </button>
-
-          {userDropdownOpen && (
-            <div className="user-dropdown-menu" role="menu">
-              <div className="user-dropdown-header">
-                <span className="dropdown-label">Masuk sebagai</span>
-                <strong className="dropdown-email">{auth.profile.email}</strong>
-              </div>
-              <div className="dropdown-divider" />
-              <a
-                className="dropdown-item"
-                href="#/"
-                role="menuitem"
-                onClick={() => setUserDropdownOpen(false)}
-              >
-                <Icon name="external" size={16} />
-                <span>Lihat asesmen</span>
-              </a>
-              <button
-                type="button"
-                className="dropdown-item danger"
-                role="menuitem"
-                onClick={() => {
-                  setUserDropdownOpen(false)
-                  auth.logout()
-                }}
-              >
-                <Icon name="logout" size={16} />
-                <span>Keluar</span>
-              </button>
-            </div>
-          )}
-        </div>
+        <div style={{ width: 40 }} aria-hidden="true" />
       </header>
 
       {/* Overlay backdrop on mobile */}
@@ -273,11 +233,14 @@ export default function Admin() {
 
       <main className="admin-main" id="admin-content">
         <section className="admin-body">
-          {tab === 'overview' && <Overview />}
-          {tab === 'results' && <Results />}
-          {tab === 'questions' && <Questions />}
-          {tab === 'dimensions' && <Dimensions />}
-          {tab === 'versions' && <Versions />}
+          <Suspense fallback={<PageLoader variant="admin" label="Memuat halaman…" />}>
+            {tab === 'overview' && <Overview />}
+            {tab === 'results' && <Results />}
+            {tab === 'questions' && <Questions />}
+            {tab === 'dimensions' && <Dimensions />}
+            {tab === 'versions' && <Versions />}
+            {tab === 'data' && <DataManagement />}
+          </Suspense>
         </section>
       </main>
     </div>

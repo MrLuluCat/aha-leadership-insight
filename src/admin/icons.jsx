@@ -111,6 +111,13 @@ const paths = {
       <path d="m4 7.5 8 6 8-6" />
     </>
   ),
+  database: (
+    <>
+      <ellipse cx="12" cy="5.5" rx="7.5" ry="3" />
+      <path d="M4.5 5.5v6.5c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V5.5" />
+      <path d="M4.5 12v6.5c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V12" />
+    </>
+  ),
 }
 
 export default function Icon({ name, size = 20 }) {

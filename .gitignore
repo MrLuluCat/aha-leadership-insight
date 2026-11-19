@@ -14,6 +14,16 @@ build/
 .env.*
 !.env.example
 
+# Local Supabase & AI assistant workspace
+.supabase/
+.gemini/
+
+# Exported backups & reports (prevent accidental commit of participant data)
+backups/
+*.csv
+*.xls
+*.xlsx
+
 # Logs
 logs/
 *.log
@@ -35,6 +45,8 @@ coverage/
 .DS_Store
 Thumbs.db
 *.swp
+*.bak
+*.tmp
 
 # Misc
 *.tsbuildinfo
