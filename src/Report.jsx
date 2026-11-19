@@ -3,6 +3,19 @@ import logo from './assets/aha-logo.jpg'
 import { buildReport } from './lib/report'
 import { fmt, dfmt } from './lib/format'
 
+function getShortLabel(d) {
+  if (d.short_name) return d.short_name
+  const n = (d.name || '').toLowerCase()
+  if (n.includes('kesadaran')) return 'Kesadaran'
+  if (n.includes('pengelolaan')) return 'Pengelolaan'
+  if (n.includes('empati')) return 'Empati'
+  if (n.includes('harmoni')) return 'Harmoni'
+  if (n.includes('kolaborasi')) return 'Kolaborasi'
+  if (n.includes('adaptas') || n.includes('adaptabilitas')) return 'Adaptasi'
+  if (n.includes('aksi')) return 'Aksi'
+  return d.name
+}
+
 export default function Report({ result, onRestart, compact = false }) {
   const report = buildReport(result)
   if (!report) return null
@@ -10,120 +23,223 @@ export default function Report({ result, onRestart, compact = false }) {
   const { dimensions, overall, category, strengths, priorities, plan } = report
 
   return (
-    <article className={'report' + (compact ? ' compact' : '')}>
-      <header className="report-head">
-        <img className="logo sm" src={logo} alt="AHA Leadership Centre" />
-        <p className="brand">Laporan asesmen</p>
-        <h1>{result.participant_name}</h1>
-        <p className="meta">
-          Asesmen {dfmt(result.completed_at)} · Versi konfigurasi {result.version_number}
-        </p>
-        <p className="overall">
-          <b>{fmt(overall)}</b>
-          <span>dari 100 · {category?.name ?? '—'}</span>
-        </p>
-        <p className="lead">{category?.mean}</p>
+    <article className={'rp-wrap' + (compact ? ' rp-compact' : '')}>
+
+      {/* ══ Top Navbar (aligned with content below) ══════════════════ */}
+      <header className="rp-navbar no-print">
+        <div className="rp-navbar-inner">
+          <img className="rp-nav-logo" src={logo} alt="AHA Leadership Centre" />
+          <div className="rp-nav-actions">
+            <a className="rp-back-btn" href="#/">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M19 12H5M12 5l-7 7 7 7"/>
+              </svg>
+              <span>Kembali<span className="rp-back-extra"> ke Dashboard</span></span>
+            </a>
+          </div>
+        </div>
       </header>
 
-      <div className="rwrap">
-        <Radar
-          values={dimensions.map((d) => d.score / 100)}
-          labels={dimensions.map((d) => d.short_name || d.name)}
-        />
-        <table className="recap">
-          <thead>
-            <tr>
-              <th>Dimensi</th>
-              <th>Skor</th>
-              <th>Bobot</th>
-              <th>Kategori</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dimensions.map((d) => (
-              <tr key={d.id}>
-                <td>{d.name}</td>
-                <td>
-                  <b>{fmt(d.score)}</b>
-                </td>
-                <td>{fmt(d.weight)}%</td>
-                <td>{d.category}</td>
-              </tr>
-            ))}
-            <tr className="sum">
-              <td>Overall Leadership Index</td>
-              <td>
-                <b>{fmt(overall)}</b>
-              </td>
-              <td>100%</td>
-              <td>{category?.name}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      {/* ══ Main content area ══════════════════════════════════════════ */}
+      <div className="rp-body">
 
-      <section className="cols">
-        <div>
-          <h2>Top 3 Strengths</h2>
-          <ul className="insight-list">
-            {strengths.map((d) => (
-              <li key={d.id}>
-                <b>
-                  {d.name} ({fmt(d.score)})
-                </b>
-                <p>{d.strength_guidance}</p>
-              </li>
-            ))}
-          </ul>
+        {/* ── Title block across full width ────────────────────────── */}
+        <div className="rp-title-block">
+          <img className="rp-nav-logo print-only" src={logo} alt="AHA Leadership Centre" />
+          <p className="rp-label">Laporan asesmen</p>
+          <h1 className="rp-name">{result.participant_name}</h1>
+          <p className="rp-date">
+            Asesmen {dfmt(result.completed_at)} · Versi konfigurasi {result.version_number}
+          </p>
         </div>
-        <div>
-          <h2>Development Priorities</h2>
-          <ul className="insight-list">
-            {priorities.map((d) => (
-              <li key={d.id}>
-                <b>
-                  {d.name} ({fmt(d.score)})
-                </b>
-                <p>{d.development_guidance}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
 
-      <section className="plan">
-        <h2>21-Day Action Plan</h2>
-        <div className="phases">
-          {plan.map((phase) => (
-            <div className="phase" key={phase.days}>
-              <p className="phase-days">{phase.days}</p>
-              <h3>{phase.title}</h3>
-              <p className="meta">{phase.focus}</p>
-              <ul>
-                {phase.actions.map((action, i) => (
-                  <li key={i}>{action}</li>
-                ))}
-              </ul>
+        {/* ── Row 1: 3 Equal-Height Cards (Score Card, Radar, Table) ── */}
+        <section className="rp-hero-cards">
+
+          {/* CARD 1: Overall Score Card with Progress Bar */}
+          <div className="rp-card rp-score-card">
+            <div className="rp-score-top">
+              <div className="rp-score-col">
+                <span className="rp-score-title">Skor Keseluruhan</span>
+                <div className="rp-score-val-wrap">
+                  <span className="rp-score-large">{fmt(overall)}</span>
+                  <span className="rp-score-out-of">dari 100</span>
+                </div>
+              </div>
+
+              <div className="rp-score-v-divider" aria-hidden="true" />
+
+              <div className="rp-score-col">
+                <span className="rp-score-cat-label">Kategori</span>
+                <div className="rp-category-row">
+                  <span className="rp-category-title">{category?.name ?? '—'}</span>
+                  <span
+                    className="rp-info-pill"
+                    title={category?.description || category?.mean}
+                    aria-label="Info kategori"
+                  >
+                    i
+                  </span>
+                </div>
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
 
-      <p className="note">
-        Hasil mencerminkan jawaban reflektif peserta untuk pengembangan diri, bukan diagnosis psikologis
-        atau dasar keputusan seleksi. Skor dihitung menggunakan konfigurasi versi yang tercatat pada sesi
-        asesmen ini.
-      </p>
+            <p className="rp-score-narrative">
+              {category?.mean || 'Kemampuan kepemimpinan Anda menunjukkan perkembangan yang cukup baik dengan ruang untuk ditingkatkan.'}
+            </p>
 
-      <div className="actions no-print">
-        <button className="btn" onClick={() => window.print()}>
-          Cetak / simpan PDF
-        </button>
-        {onRestart && (
-          <button className="link" onClick={onRestart}>
-            Ulangi asesmen
-          </button>
-        )}
+            {/* Bottom Progress Bar + % */}
+            <div className="rp-progress-row">
+              <div className="rp-progress-track">
+                <div
+                  className="rp-progress-fill"
+                  style={{ width: `${Math.min(100, Math.max(0, overall))}%` }}
+                />
+              </div>
+              <span className="rp-progress-text">{fmt(overall)}%</span>
+            </div>
+          </div>
+
+          {/* CARD 2: Radar Chart Card */}
+          <div className="rp-card rp-radar-card">
+            <div className="rp-radar-inner">
+              <Radar
+                values={dimensions.map((d) => d.score / 100)}
+                labels={dimensions.map((d) => getShortLabel(d))}
+              />
+            </div>
+          </div>
+
+          {/* CARD 3: Clean Dimensions Table Card (Dimensi, Skor, Kategori) */}
+          <div className="rp-card rp-table-card">
+            <table className="rp-clean-table">
+              <thead>
+                <tr>
+                  <th className="rp-col-dim">Dimensi</th>
+                  <th className="rp-col-score">Skor</th>
+                  <th className="rp-col-cat">Kategori</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dimensions.map((d) => (
+                  <tr key={d.id}>
+                    <td className="rp-td-name">{d.name}</td>
+                    <td className="rp-td-score">{fmt(d.score)}</td>
+                    <td className="rp-td-cat-name">{d.category}</td>
+                  </tr>
+                ))}
+                <tr className="rp-row-highlight">
+                  <td className="rp-td-name"><strong>Overall Leadership Index</strong></td>
+                  <td className="rp-td-score"><strong>{fmt(overall)}</strong></td>
+                  <td className="rp-td-cat-name"><strong>{category?.name}</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* ── Row 2: Equal Balanced Insights (Strengths & Priorities) ─ */}
+        <section className="rp-insights-row">
+
+          {/* Top 3 Strengths */}
+          <div className="rp-card rp-insight-card">
+            <div className="rp-insight-header">
+              <div className="rp-insight-accent" />
+              <h2 className="rp-insight-title">Top 3 Strengths</h2>
+            </div>
+            <ol className="rp-insight-list">
+              {strengths.map((d, i) => (
+                <li key={d.id} className="rp-insight-item">
+                  <span className="rp-rank">{i + 1}</span>
+                  <div className="rp-insight-body">
+                    <p className="rp-insight-name">
+                      {d.name} <span className="rp-insight-score">({fmt(d.score)})</span>
+                    </p>
+                    <p className="rp-insight-desc">{d.strength_guidance}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Development Priorities */}
+          <div className="rp-card rp-insight-card">
+            <div className="rp-insight-header">
+              <div className="rp-insight-accent rp-accent-dev" />
+              <h2 className="rp-insight-title">Development Priorities</h2>
+            </div>
+            <ol className="rp-insight-list">
+              {priorities.map((d, i) => (
+                <li key={d.id} className="rp-insight-item">
+                  <span className="rp-rank">{i + 1}</span>
+                  <div className="rp-insight-body">
+                    <p className="rp-insight-name">
+                      {d.name} <span className="rp-insight-score">({fmt(d.score)})</span>
+                    </p>
+                    <p className="rp-insight-desc">{d.development_guidance}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* ── Row 3: 21-Day Action Plan (3 Equal Sized Cards) ──────── */}
+        <section className="rp-plan-section">
+          <div className="rp-plan-header">
+            <div className="rp-insight-accent" />
+            <h2 className="rp-plan-title">21-Day Action Plan</h2>
+          </div>
+          <div className="rp-phases">
+            {plan.map((phase) => (
+              <div className="rp-card rp-phase" key={phase.days}>
+                <span className="rp-phase-days">{phase.days}</span>
+                <h3 className="rp-phase-title">{phase.title}</h3>
+                <p className="rp-phase-focus">{phase.focus}</p>
+                <ul className="rp-phase-actions">
+                  {phase.actions.map((action, i) => (
+                    <li key={i} className="rp-phase-action">
+                      <svg className="rp-check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      <span>{action}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Footer ───────────────────────────────────────────────── */}
+        <footer className="rp-footer">
+          <p className="rp-disclaimer">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{flexShrink:0,marginTop:2}}>
+              <circle cx="12" cy="12" r="10"/><path fill="white" d="M12 16v-4M12 8h.01"/>
+            </svg>
+            <span>
+              Hasil mencerminkan jawaban reflektif peserta untuk pengembangan diri, bukan diagnosis
+              psikologis atau dasar keputusan seleksi. Skor dihitung menggunakan konfigurasi versi
+              yang tercatat pada sesi asesmen ini.
+            </span>
+          </p>
+          <div className="rp-footer-actions no-print">
+            <button className="rp-print-btn" onClick={() => window.print()}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+              </svg>
+              Cetak / simpan PDF
+            </button>
+            {onRestart && (
+              <button className="rp-restart-btn" onClick={onRestart}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/>
+                </svg>
+                Ulangi asesmen
+              </button>
+            )}
+          </div>
+        </footer>
       </div>
     </article>
   )

@@ -263,7 +263,7 @@ function Participant() {
 
   if (view === 'result' && result) {
     return (
-      <main className="wrap result">
+      <main className="rp-page">
         <Report result={result} onRestart={restart} />
       </main>
     )
