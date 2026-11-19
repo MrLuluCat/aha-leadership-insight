@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isSupabaseConfigured, supabaseConfigError } from './lib/supabase'
 import { useAuth } from './lib/useAuth'
 import AdminLogin from './admin/AdminLogin'
@@ -7,13 +7,15 @@ import Results from './admin/Results'
 import Questions from './admin/Questions'
 import Dimensions from './admin/Dimensions'
 import Versions from './admin/Versions'
+import Icon from './admin/icons'
+import logo from './assets/aha-logo.jpg'
 
 const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'results', label: 'Hasil Peserta' },
-  { id: 'questions', label: 'Pertanyaan' },
-  { id: 'dimensions', label: 'Dimensi & Bobot' },
-  { id: 'versions', label: 'Versi Asesmen' },
+  { id: 'overview', label: 'Dashboard', icon: 'home' },
+  { id: 'results', label: 'Hasil Peserta', icon: 'results' },
+  { id: 'questions', label: 'Pertanyaan', icon: 'questions' },
+  { id: 'dimensions', label: 'Dimensi & Bobot', icon: 'dimensions' },
+  { id: 'versions', label: 'Versi Asesmen', icon: 'versions' },
 ]
 
 const tabFromHash = () => {
@@ -24,9 +26,25 @@ const tabFromHash = () => {
 export default function Admin() {
   const auth = useAuth()
   const [tab, setTab] = useState(tabFromHash)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false)
+  const dropdownRef = useRef(null)
 
   useEffect(() => {
-    const onHash = () => setTab(tabFromHash())
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setUserDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    const onHash = () => {
+      setTab(tabFromHash())
+      setMenuOpen(false)
+    }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
@@ -34,6 +52,7 @@ export default function Admin() {
   function navigate(nextTab) {
     window.location.hash = `#/admin/${nextTab}`
     setTab(nextTab)
+    setMenuOpen(false)
   }
 
   if (!isSupabaseConfigured) {
@@ -101,44 +120,167 @@ export default function Admin() {
   }
 
   return (
-    <main className="wrap admin">
-      <header className="ahead">
-        <div>
-          <p className="brand">Dashboard admin</p>
-          <h1>AHA Leadership Insight</h1>
-        </div>
-        <div className="admin-user">
-          <span className="meta">{auth.profile.email}</span>
-          <a className="link" href="#/">
-            Lihat asesmen
-          </a>
-          <button className="link" onClick={auth.logout}>
-            Keluar
+    <div className="admin-shell">
+      <a className="skip-link" href="#admin-content">Lewati ke konten</a>
+
+      {/* Mobile Top Navbar with Burger */}
+      <header className="mobile-admin-bar">
+        <button
+          type="button"
+          className="burger-btn"
+          aria-label={menuOpen ? 'Tutup navigasi' : 'Buka navigasi'}
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          <Icon name={menuOpen ? 'close' : 'menu'} size={24} />
+        </button>
+        <img className="mobile-bar-logo" src={logo} alt="AHA Leadership Insight" />
+        <div className="user-dropdown-container" ref={dropdownRef}>
+          <button
+            type="button"
+            className="user-trigger mobile-avatar-btn"
+            aria-label="Menu akun"
+            aria-expanded={userDropdownOpen}
+            onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+          >
+            <span className="avatar sm" aria-hidden="true">
+              {(auth.profile.email || 'A').charAt(0).toUpperCase()}
+            </span>
           </button>
+
+          {userDropdownOpen && (
+            <div className="user-dropdown-menu" role="menu">
+              <div className="user-dropdown-header">
+                <span className="dropdown-label">Masuk sebagai</span>
+                <strong className="dropdown-email">{auth.profile.email}</strong>
+              </div>
+              <div className="dropdown-divider" />
+              <a
+                className="dropdown-item"
+                href="#/"
+                role="menuitem"
+                onClick={() => setUserDropdownOpen(false)}
+              >
+                <Icon name="external" size={16} />
+                <span>Lihat asesmen</span>
+              </a>
+              <button
+                type="button"
+                className="dropdown-item danger"
+                role="menuitem"
+                onClick={() => {
+                  setUserDropdownOpen(false)
+                  auth.logout()
+                }}
+              >
+                <Icon name="logout" size={16} />
+                <span>Keluar</span>
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
-      <nav className="tabs" aria-label="Navigasi admin">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            className={'tab' + (tab === item.id ? ' on' : '')}
-            aria-current={tab === item.id ? 'page' : undefined}
-            onClick={() => navigate(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      {/* Overlay backdrop on mobile */}
+      {menuOpen && (
+        <div
+          className="side-backdrop"
+          aria-hidden="true"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
 
-      <section className="admin-body">
-        {tab === 'overview' && <Overview />}
-        {tab === 'results' && <Results />}
-        {tab === 'questions' && <Questions />}
-        {tab === 'dimensions' && <Dimensions />}
-        {tab === 'versions' && <Versions />}
-      </section>
-    </main>
+      <aside className={`side ${menuOpen ? 'open' : ''}`} aria-label="Sidebar">
+        <div className="side-header">
+          <img className="side-logo" src={logo} alt="AHA Leadership Insight" />
+          <button
+            type="button"
+            className="side-close-btn"
+            aria-label="Tutup navigasi"
+            onClick={() => setMenuOpen(false)}
+          >
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+        <nav className="tabs" aria-label="Navigasi admin">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              className={'tab' + (tab === item.id ? ' on' : '')}
+              aria-current={tab === item.id ? 'page' : undefined}
+              aria-label={item.label}
+              onClick={() => navigate(item.id)}
+            >
+              <Icon name={item.icon} size={20} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* ── User account block – pinned to bottom of sidebar ── */}
+        <div className="side-user-block">
+          <div className="user-dropdown-container" ref={dropdownRef}>
+            <button
+              type="button"
+              className="user-trigger side-user-trigger"
+              aria-label="Menu akun admin"
+              aria-expanded={userDropdownOpen}
+              onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+            >
+              <span className="avatar" aria-hidden="true">
+                {(auth.profile.email || 'A').charAt(0).toUpperCase()}
+              </span>
+              <span className="user-trigger-info">
+                <span className="user-trigger-email">{auth.profile.email}</span>
+                <span className="user-trigger-badge">Administrator</span>
+              </span>
+              <Icon name="chevron" size={16} />
+            </button>
+
+            {userDropdownOpen && (
+              <div className="user-dropdown-menu side-user-dropdown" role="menu">
+                <div className="user-dropdown-header">
+                  <span className="dropdown-label">Masuk sebagai</span>
+                  <strong className="dropdown-email">{auth.profile.email}</strong>
+                </div>
+                <div className="dropdown-divider" />
+                <a
+                  className="dropdown-item"
+                  href="#/"
+                  role="menuitem"
+                  onClick={() => setUserDropdownOpen(false)}
+                >
+                  <Icon name="external" size={16} />
+                  <span>Lihat asesmen</span>
+                </a>
+                <button
+                  type="button"
+                  className="dropdown-item danger"
+                  role="menuitem"
+                  onClick={() => {
+                    setUserDropdownOpen(false)
+                    auth.logout()
+                  }}
+                >
+                  <Icon name="logout" size={16} />
+                  <span>Keluar</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      <main className="admin-main" id="admin-content">
+        <section className="admin-body">
+          {tab === 'overview' && <Overview />}
+          {tab === 'results' && <Results />}
+          {tab === 'questions' && <Questions />}
+          {tab === 'dimensions' && <Dimensions />}
+          {tab === 'versions' && <Versions />}
+        </section>
+      </main>
+    </div>
   )
 }
 

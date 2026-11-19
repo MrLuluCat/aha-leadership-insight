@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { fmt } from '../lib/format'
 import {
   createQuestion,
@@ -17,15 +17,49 @@ const emptyForm = (dimensions, nextOrder) => ({
   is_active: true,
 })
 
+const PAGE_SIZES = [10, 25, 50, 100]
+
+function SortIcon({ col, sortKey, sortDir }) {
+  if (sortKey !== col)
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.3, marginLeft: 4 }}>
+        <path d="M12 5v14M5 12l7-7 7 7" />
+      </svg>
+    )
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ marginLeft: 4, transform: sortDir === 'desc' ? 'rotate(180deg)' : 'none', color: '#2563eb' }}
+    >
+      <path d="M12 5v14M5 12l7-7 7 7" />
+    </svg>
+  )
+}
+
 export default function Questions() {
   const [dimensions, setDimensions] = useState([])
-  const [questions, setQuestions] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const [editing, setEditing] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState('all')
+  const [questions, setQuestions]   = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [error, setError]           = useState('')
+  const [notice, setNotice]         = useState('')
+  const [editing, setEditing]       = useState(null)
+  const [busy, setBusy]             = useState(false)
+
+  // DataTable state
+  const [search, setSearch]         = useState('')
+  const [dimFilter, setDimFilter]   = useState('all')
+  const [statusFilter, setStatus]   = useState('all')
+  const [sortKey, setSortKey]       = useState('sort_order')
+  const [sortDir, setSortDir]       = useState('asc')
+  const [page, setPage]             = useState(0)
+  const [pageSize, setPageSize]     = useState(10)
 
   async function load() {
     setLoading(true)
@@ -34,6 +68,7 @@ export default function Questions() {
       const [dims, items] = await Promise.all([fetchDimensions(), fetchQuestions()])
       setDimensions(dims)
       setQuestions(items)
+      setPage(0)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -41,13 +76,11 @@ export default function Questions() {
     }
   }
 
-  useEffect(() => {
-    load()
-  }, [])
+  useEffect(() => { load() }, [])
 
-  const dimName = (id) => dimensions.find((dim) => dim.id === id)?.name ?? '—'
+  const dimName = (id) => dimensions.find((d) => d.id === id)?.name ?? '—'
   const nextOrder = questions.length
-    ? Math.max(...questions.map((question) => question.sort_order)) + 1
+    ? Math.max(...questions.map((q) => q.sort_order)) + 1
     : 1
 
   function startNew() {
@@ -56,35 +89,33 @@ export default function Questions() {
     setError('')
   }
 
-  function startEdit(question) {
+  function startEdit(q) {
     setEditing({
-      id: question.id,
-      dimension_id: question.dimension_id,
-      question_text: question.question_text,
-      weight: Number(question.weight),
-      reverse_scoring: question.reverse_scoring,
-      sort_order: question.sort_order,
-      is_active: question.is_active,
+      id: q.id,
+      dimension_id: q.dimension_id,
+      question_text: q.question_text,
+      weight: Number(q.weight),
+      reverse_scoring: q.reverse_scoring,
+      sort_order: q.sort_order,
+      is_active: q.is_active,
     })
     setNotice('')
     setError('')
   }
 
   function patch(field, value) {
-    setEditing((current) => ({ ...current, [field]: value }))
+    setEditing((cur) => ({ ...cur, [field]: value }))
   }
 
-  async function save(event) {
-    event.preventDefault()
+  async function save(e) {
+    e.preventDefault()
     if (!editing) return
-
-    const text = editing.question_text.trim()
+    const text   = editing.question_text.trim()
     const weight = Number(editing.weight)
     if (!text) return setError('Teks pertanyaan wajib diisi.')
     if (!editing.dimension_id) return setError('Pilih dimensi untuk pertanyaan ini.')
-    if (!Number.isFinite(weight) || weight <= 0) {
+    if (!Number.isFinite(weight) || weight <= 0)
       return setError('Bobot pertanyaan harus lebih besar dari 0.')
-    }
 
     setBusy(true)
     setError('')
@@ -110,30 +141,69 @@ export default function Questions() {
     }
   }
 
-  async function toggleActive(question) {
+  async function toggleActive(q) {
     setError('')
     setNotice('')
     try {
-      await updateQuestion(question.id, { is_active: !question.is_active })
-      setNotice(
-        question.is_active
-          ? 'Pertanyaan dinonaktifkan. Histori hasil tetap tersimpan.'
-          : 'Pertanyaan diaktifkan kembali.'
-      )
+      await updateQuestion(q.id, { is_active: !q.is_active })
+      setNotice(q.is_active
+        ? 'Pertanyaan dinonaktifkan. Histori hasil tetap tersimpan.'
+        : 'Pertanyaan diaktifkan kembali.')
       await load()
     } catch (err) {
       setError(err.message)
     }
   }
 
-  const shown = questions.filter((question) =>
-    status === 'all' ? true : status === 'active' ? question.is_active : !question.is_active
-  )
+  // ── DataTable logic ──────────────────────────────────────────
+  function handleSort(key) {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir('asc') }
+    setPage(0)
+  }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return questions.filter((item) => {
+      if (statusFilter === 'active'   && !item.is_active) return false
+      if (statusFilter === 'inactive' &&  item.is_active) return false
+      if (dimFilter !== 'all' && item.dimension_id !== dimFilter) return false
+      if (q) {
+        const hay = `${item.question_text} ${dimName(item.dimension_id)}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [questions, search, statusFilter, dimFilter, dimensions])
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let va = a[sortKey] ?? ''
+      let vb = b[sortKey] ?? ''
+      if (sortKey === 'dimension') { va = dimName(a.dimension_id); vb = dimName(b.dimension_id) }
+      const cmp = typeof va === 'string' ? va.localeCompare(vb) : va - vb
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [filtered, sortKey, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const safePage   = Math.min(page, totalPages - 1)
+  const paged      = sorted.slice(safePage * pageSize, safePage * pageSize + pageSize)
+
+  const cols = [
+    { key: 'sort_order', label: 'Urutan', width: '72px' },
+    { key: 'question_text', label: 'Pertanyaan' },
+    { key: 'dimension', label: 'Dimensi', width: '150px' },
+    { key: 'weight', label: 'Bobot', width: '72px' },
+    { key: 'reverse_scoring', label: 'Reverse', width: '80px' },
+    { key: 'is_active', label: 'Status', width: '90px' },
+  ]
 
   if (loading) return <p className="meta">Memuat pertanyaan…</p>
 
   return (
     <>
+      {/* ── Header ── */}
       <header className="ahead">
         <div>
           <h1>Pertanyaan</h1>
@@ -144,15 +214,16 @@ export default function Questions() {
       </header>
 
       <p className="meta">
-        {questions.length} pertanyaan · {questions.filter((question) => question.is_active).length}{' '}
-        aktif. Pertanyaan yang sudah digunakan pada hasil asesmen tidak dihapus permanen; gunakan
-        status nonaktif. Perubahan berlaku pada sesi baru setelah draft dipublikasikan dari tab Versi
+        {questions.length} pertanyaan · {questions.filter((q) => q.is_active).length} aktif.{' '}
+        Pertanyaan yang sudah digunakan pada hasil asesmen tidak dihapus permanen; gunakan status
+        nonaktif. Perubahan berlaku pada sesi baru setelah draft dipublikasikan dari tab Versi
         Asesmen.
       </p>
 
-      {error && <p className="alert">{error}</p>}
+      {error  && <p className="alert">{error}</p>}
       {notice && <p className="alert success">{notice}</p>}
 
+      {/* ── Inline edit/create form ── */}
       {editing && (
         <form className="card form-card" onSubmit={save}>
           <h2>{editing.id ? 'Edit pertanyaan' : 'Pertanyaan baru'}</h2>
@@ -161,7 +232,7 @@ export default function Questions() {
             <textarea
               rows="3"
               value={editing.question_text}
-              onChange={(event) => patch('question_text', event.target.value)}
+              onChange={(e) => patch('question_text', e.target.value)}
               required
             />
           </label>
@@ -170,32 +241,27 @@ export default function Questions() {
               <span>Dimensi</span>
               <select
                 value={editing.dimension_id}
-                onChange={(event) => patch('dimension_id', event.target.value)}
+                onChange={(e) => patch('dimension_id', e.target.value)}
               >
-                {dimensions.map((dimension) => (
-                  <option key={dimension.id} value={dimension.id}>
-                    {dimension.name}
-                  </option>
+                {dimensions.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
             </label>
             <label className="field">
               <span>Bobot pertanyaan</span>
               <input
-                type="number"
-                min="0.01"
-                step="0.01"
+                type="number" min="0.01" step="0.01"
                 value={editing.weight}
-                onChange={(event) => patch('weight', event.target.value)}
+                onChange={(e) => patch('weight', e.target.value)}
               />
             </label>
             <label className="field">
               <span>Urutan</span>
               <input
-                type="number"
-                step="1"
+                type="number" step="1"
                 value={editing.sort_order}
-                onChange={(event) => patch('sort_order', event.target.value)}
+                onChange={(e) => patch('sort_order', e.target.value)}
               />
             </label>
           </div>
@@ -204,7 +270,7 @@ export default function Questions() {
               <input
                 type="checkbox"
                 checked={editing.reverse_scoring}
-                onChange={(event) => patch('reverse_scoring', event.target.checked)}
+                onChange={(e) => patch('reverse_scoring', e.target.checked)}
               />
               Reverse scoring (6 − jawaban)
             </label>
@@ -212,7 +278,7 @@ export default function Questions() {
               <input
                 type="checkbox"
                 checked={editing.is_active}
-                onChange={(event) => patch('is_active', event.target.checked)}
+                onChange={(e) => patch('is_active', e.target.checked)}
               />
               Aktif
             </label>
@@ -228,64 +294,164 @@ export default function Questions() {
         </form>
       )}
 
-      <div className="tools">
-        <select
-          aria-label="Filter status pertanyaan"
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-        >
-          <option value="all">Semua status</option>
-          <option value="active">Aktif</option>
-          <option value="inactive">Nonaktif</option>
-        </select>
-        <span className="meta">{shown.length} ditampilkan</span>
-      </div>
+      {/* ── DataTable card ── */}
+      <div className="dt-questions-card">
+        {/* Controls top bar */}
+        <div className="dt-card-header">
+          <div className="dt-left-controls">
+            <label className="dt-page-size-label">
+              Tampilkan&nbsp;
+              <select
+                className="dt-page-size-sel"
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0) }}
+              >
+                {PAGE_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              &nbsp;data
+            </label>
+          </div>
 
-      <div className="tablewrap card">
-        <table className="data stack">
-          <thead>
-            <tr>
-              <th>Urutan</th>
-              <th>Pertanyaan</th>
-              <th>Dimensi</th>
-              <th>Bobot</th>
-              <th>Reverse</th>
-              <th>Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((question) => (
-              <tr key={question.id} className={question.is_active ? '' : 'muted'}>
-                <td data-label="Urutan">{question.sort_order}</td>
-                <td data-label="Pertanyaan">{question.question_text}</td>
-                <td data-label="Dimensi">{dimName(question.dimension_id)}</td>
-                <td data-label="Bobot">{fmt(question.weight)}</td>
-                <td data-label="Reverse">{question.reverse_scoring ? 'Ya' : '—'}</td>
-                <td data-label="Status">
-                  <span className={'badge ' + (question.is_active ? 'ok' : 'off')}>
-                    {question.is_active ? 'Aktif' : 'Nonaktif'}
-                  </span>
-                </td>
-                <td className="row-actions">
-                  <button className="thb" onClick={() => startEdit(question)}>
-                    Edit
-                  </button>
-                  <button className="thb" onClick={() => toggleActive(question)}>
-                    {question.is_active ? 'Nonaktifkan' : 'Aktifkan'}
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {!shown.length && (
+          <div className="dt-right-controls">
+            {/* Dimension filter */}
+            <select
+              className="dt-filter-sel"
+              value={dimFilter}
+              aria-label="Filter dimensi"
+              onChange={(e) => { setDimFilter(e.target.value); setPage(0) }}
+            >
+              <option value="all">Semua dimensi</option>
+              {dimensions.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+
+            {/* Status filter */}
+            <select
+              className="dt-filter-sel"
+              value={statusFilter}
+              aria-label="Filter status"
+              onChange={(e) => { setStatus(e.target.value); setPage(0) }}
+            >
+              <option value="all">Semua status</option>
+              <option value="active">Aktif</option>
+              <option value="inactive">Nonaktif</option>
+            </select>
+
+            {/* Search */}
+            <div className="dt-search-wrap">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="dt-search-icon" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+              </svg>
+              <input
+                className="dt-search-input"
+                type="search"
+                placeholder="Cari pertanyaan…"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(0) }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="dt-table-wrap">
+          <table className="dt-table">
+            <thead>
               <tr>
-                <td colSpan="7" className="meta">
-                  Belum ada pertanyaan pada filter ini.
-                </td>
+                {cols.map((c) => (
+                  <th
+                    key={c.key}
+                    style={{ width: c.width }}
+                    onClick={() => handleSort(c.key)}
+                    className="dt-th"
+                  >
+                    {c.label}
+                    <SortIcon col={c.key} sortKey={sortKey} sortDir={sortDir} />
+                  </th>
+                ))}
+                <th className="dt-th" style={{ width: '140px' }}>Aksi</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {paged.map((q) => (
+                <tr key={q.id} className={q.is_active ? '' : 'muted'}>
+                  <td>{q.sort_order}</td>
+                  <td>{q.question_text}</td>
+                  <td>{dimName(q.dimension_id)}</td>
+                  <td>{fmt(q.weight)}</td>
+                  <td>{q.reverse_scoring ? 'Ya' : '—'}</td>
+                  <td>
+                    <span className={'badge ' + (q.is_active ? 'ok' : 'off')}>
+                      {q.is_active ? 'Aktif' : 'Nonaktif'}
+                    </span>
+                  </td>
+                  <td className="row-actions">
+                    <button className="thb" onClick={() => startEdit(q)}>Edit</button>
+                    <button className="thb" onClick={() => toggleActive(q)}>
+                      {q.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!paged.length && (
+                <tr>
+                  <td colSpan="7" className="meta dt-empty">
+                    Tidak ada data yang cocok dengan filter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination footer */}
+        <div className="dt-footer">
+          <span className="dt-info">
+            {sorted.length === 0
+              ? 'Tidak ada data'
+              : `Menampilkan ${safePage * pageSize + 1}–${Math.min((safePage + 1) * pageSize, sorted.length)} dari ${sorted.length} data`}
+          </span>
+          <div className="dt-pager">
+            <button
+              className="dt-pg-btn"
+              onClick={() => setPage(0)}
+              disabled={safePage === 0}
+              aria-label="Halaman pertama"
+            >«</button>
+            <button
+              className="dt-pg-btn"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={safePage === 0}
+              aria-label="Halaman sebelumnya"
+            >‹</button>
+
+            {Array.from({ length: totalPages }, (_, i) => i)
+              .filter((i) => Math.abs(i - safePage) <= 2)
+              .map((i) => (
+                <button
+                  key={i}
+                  className={'dt-pg-btn' + (i === safePage ? ' active' : '')}
+                  onClick={() => setPage(i)}
+                >
+                  {i + 1}
+                </button>
+              ))}
+
+            <button
+              className="dt-pg-btn"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={safePage >= totalPages - 1}
+              aria-label="Halaman berikutnya"
+            >›</button>
+            <button
+              className="dt-pg-btn"
+              onClick={() => setPage(totalPages - 1)}
+              disabled={safePage >= totalPages - 1}
+              aria-label="Halaman terakhir"
+            >»</button>
+          </div>
+        </div>
       </div>
     </>
   )

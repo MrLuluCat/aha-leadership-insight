@@ -3,8 +3,9 @@ import { CATS, SCALE } from '../scoring'
 import { fmt, dfmt } from '../lib/format'
 import { fetchResultDetail, fetchResultsPage } from '../services/admin'
 import Report from '../Report'
+import Icon from './icons'
 
-const PAGE_SIZE = 10
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export default function Results() {
   const [search, setSearch] = useState('')
@@ -15,6 +16,7 @@ export default function Results() {
   const [sort, setSort] = useState('date')
   const [dir, setDir] = useState('desc')
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [data, setData] = useState({ total: 0, rows: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -35,7 +37,7 @@ export default function Results() {
 
   useEffect(() => {
     setPage(0)
-  }, [category, from, to])
+  }, [category, from, to, pageSize])
 
   useEffect(() => {
     let mounted = true
@@ -48,8 +50,8 @@ export default function Results() {
       to,
       sort,
       dir,
-      limit: PAGE_SIZE,
-      offset: page * PAGE_SIZE,
+      limit: pageSize,
+      offset: page * pageSize,
     })
       .then((result) => {
         if (mounted) setData(result)
@@ -63,7 +65,7 @@ export default function Results() {
     return () => {
       mounted = false
     }
-  }, [debounced, category, from, to, sort, dir, page])
+  }, [debounced, category, from, to, sort, dir, page, pageSize])
 
   async function openDetail(row) {
     setSelectedId(row.result_id)
@@ -157,8 +159,14 @@ export default function Results() {
 
   const rows = data?.rows ?? []
   const total = Number(data?.total ?? 0)
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const arrow = (key) => (sort === key ? (dir === 'asc' ? ' ↑' : ' ↓') : '')
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const fromRecord = total === 0 ? 0 : page * pageSize + 1
+  const toRecord = Math.min((page + 1) * pageSize, total)
+
+  const renderSortIndicator = (key) => {
+    if (sort !== key) return <span className="dt-sort-icon neutral">↕</span>
+    return <span className="dt-sort-icon active">{dir === 'asc' ? '▲' : '▼'}</span>
+  }
 
   return (
     <>
@@ -169,86 +177,112 @@ export default function Results() {
         <p className="meta">{total} hasil asesmen</p>
       </header>
 
-      <div className="tools">
-        <input
-          aria-label="Cari nama peserta"
-          placeholder="Cari nama peserta"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <select
-          aria-label="Filter kategori"
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-        >
-          <option value="">Semua kategori</option>
-          {CATS.map((cat) => (
-            <option key={cat.name} value={cat.name}>
-              {cat.name}
-            </option>
-          ))}
-        </select>
-        <label className="date-field">
-          <span>Dari</span>
-          <input
-            type="date"
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-            aria-label="Tanggal mulai"
-          />
-        </label>
-        <label className="date-field">
-          <span>Sampai</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(event) => setTo(event.target.value)}
-            aria-label="Tanggal akhir"
-          />
-        </label>
-        <button className="btn sm" onClick={exportCsv} disabled={exporting || !total}>
-          {exporting ? 'Menyiapkan…' : 'Ekspor CSV'}
-        </button>
+      {/* DataTables Controls Header */}
+      <div className="dt-controls-top">
+        <div className="dt-length">
+          <label>
+            <span>Tampilkan</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              aria-label="Jumlah entri per halaman"
+            >
+              {PAGE_SIZE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+            <span>entri</span>
+          </label>
+        </div>
+
+        <div className="dt-filters">
+          <div className="dt-search-box">
+            <input
+              type="search"
+              aria-label="Cari nama atau email peserta"
+              placeholder="Cari peserta…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <select
+            aria-label="Filter kategori"
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+          >
+            <option value="">Semua kategori</option>
+            {CATS.map((cat) => (
+              <option key={cat.name} value={cat.name}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+          <div className="dt-date-range">
+            <input
+              type="date"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+              aria-label="Tanggal mulai"
+              title="Tanggal mulai"
+            />
+            <span className="dt-date-sep">s/d</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              aria-label="Tanggal akhir"
+              title="Tanggal akhir"
+            />
+          </div>
+          <button className="btn sm dt-export-btn" onClick={exportCsv} disabled={exporting || !total}>
+            {exporting ? 'Menyiapkan…' : 'Ekspor CSV'}
+          </button>
+        </div>
       </div>
 
       {error && <p className="alert">{error}</p>}
 
-      <div className="tablewrap card">
-        <table className="data stack">
+      <div className="tablewrap card dt-tablewrap">
+        <table className="data stack dt-table">
           <thead>
             <tr>
-              <th>
-                <button className="thb" onClick={() => sortBy('name')}>
-                  Participant{arrow('name')}
-                </button>
+              <th className="dt-th-sortable" onClick={() => sortBy('name')}>
+                <div className="dt-th-content">
+                  <span>Participant</span>
+                  {renderSortIndicator('name')}
+                </div>
               </th>
-              <th>
-                <button className="thb" onClick={() => sortBy('date')}>
-                  Assessment Date{arrow('date')}
-                </button>
+              <th className="dt-th-sortable" onClick={() => sortBy('date')}>
+                <div className="dt-th-content">
+                  <span>Assessment Date</span>
+                  {renderSortIndicator('date')}
+                </div>
               </th>
-              <th>
-                <button className="thb" onClick={() => sortBy('overall')}>
-                  Leadership Index{arrow('overall')}
-                </button>
+              <th className="dt-th-sortable" onClick={() => sortBy('overall')}>
+                <div className="dt-th-content">
+                  <span>Leadership Index</span>
+                  {renderSortIndicator('overall')}
+                </div>
               </th>
               <th>Category</th>
               <th>Version</th>
-              <th />
+              <th style={{ width: '80px', textAlign: 'center' }}>Aksi</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan="6" className="meta">
-                  Memuat hasil peserta…
+                <td colSpan="6" className="dt-empty">
+                  Memuat data peserta…
                 </td>
               </tr>
             )}
             {!loading && !rows.length && (
               <tr>
-                <td colSpan="6" className="meta">
-                  Tidak ada peserta yang cocok. Ubah kata kunci atau filter.
+                <td colSpan="6" className="dt-empty">
+                  Tidak ada data yang cocok dengan kriteria pencarian.
                 </td>
               </tr>
             )}
@@ -256,17 +290,21 @@ export default function Results() {
               rows.map((row) => (
                 <tr key={row.result_id} className={row.result_id === selectedId ? 'on' : ''}>
                   <td data-label="Peserta">
-                    <b>{row.participant_name}</b>
-                    {row.participant_email && <small className="sub">{row.participant_email}</small>}
+                    <strong className="dt-primary-text">{row.participant_name}</strong>
+                    {row.participant_email && <span className="sub">{row.participant_email}</span>}
                   </td>
                   <td data-label="Tanggal">{dfmt(row.assessment_date)}</td>
                   <td data-label="Leadership Index">
-                    <b>{fmt(row.overall_score)}</b>
+                    <span className="dt-score-pill">{fmt(row.overall_score)}</span>
                   </td>
-                  <td data-label="Kategori">{row.category}</td>
-                  <td data-label="Versi">v{row.version_number}</td>
-                  <td>
-                    <button className="thb" onClick={() => openDetail(row)}>
+                  <td data-label="Kategori">
+                    <span className="badge">{row.category}</span>
+                  </td>
+                  <td data-label="Versi">
+                    <span className="badge off">v{row.version_number}</span>
+                  </td>
+                  <td data-label="Aksi">
+                    <button className="dt-btn-action" onClick={() => openDetail(row)}>
                       Lihat
                     </button>
                   </td>
@@ -276,20 +314,50 @@ export default function Results() {
         </table>
       </div>
 
-      <div className="pagination">
-        <button className="link" disabled={page === 0} onClick={() => setPage(page - 1)}>
-          Sebelumnya
-        </button>
-        <span className="meta">
-          Halaman {page + 1} dari {pages}
-        </span>
-        <button
-          className="link"
-          disabled={page + 1 >= pages}
-          onClick={() => setPage(page + 1)}
-        >
-          Berikutnya
-        </button>
+      {/* DataTables Info & Pagination Footer */}
+      <div className="dt-controls-bottom">
+        <div className="dt-info">
+          Menampilkan {fromRecord} sampai {toRecord} dari {total} entri
+        </div>
+        <div className="dt-pagination">
+          <button
+            type="button"
+            className="dt-page-btn"
+            disabled={page === 0}
+            onClick={() => setPage(0)}
+            title="Halaman pertama"
+          >
+            «
+          </button>
+          <button
+            type="button"
+            className="dt-page-btn"
+            disabled={page === 0}
+            onClick={() => setPage(page - 1)}
+          >
+            Sebelumnya
+          </button>
+          <span className="dt-page-indicator">
+            {page + 1} / {pages}
+          </span>
+          <button
+            type="button"
+            className="dt-page-btn"
+            disabled={page + 1 >= pages}
+            onClick={() => setPage(page + 1)}
+          >
+            Berikutnya
+          </button>
+          <button
+            type="button"
+            className="dt-page-btn"
+            disabled={page + 1 >= pages}
+            onClick={() => setPage(pages - 1)}
+            title="Halaman terakhir"
+          >
+            »
+          </button>
+        </div>
       </div>
 
       {selectedId && (
